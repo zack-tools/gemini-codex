@@ -14,6 +14,7 @@
 - [步驟三：產生 Codex 相容的 Model Catalog (整合 7 大核心模型)](#步驟三產生-codex-相容的-model-catalog-整合-7-大核心模型)
 - [步驟四：配置 CC Switch 實現動態切換](#步驟四配置-cc-switch-實現動態切換)
 - [步驟五：設定 Windows 開機靜默自啟動](#步驟五設定-windows-開機靜默自啟動)
+- [讓 Codex 原廠「[@瀏覽器]」在 Gemini 模式下完美啟動](#-讓-codex-原廠瀏覽器在-gemini-模式下完美啟動)
 - [常見問題與排查 (FAQ)](#-常見問題與排查-faq)
 
 ---
@@ -290,6 +291,67 @@ $Shortcut.Save()
 
 ---
 
+## 🌐 讓 Codex 原廠「[@瀏覽器]」在 Gemini 模式下完美啟動
+
+### 1. 痛點剖析：為什麼切換自訂模型後原廠瀏覽器會失效？
+Codex Desktop 的原廠 `[@瀏覽器]`（包含 Codex 內建 In-app Browser 與 Edge 擴充外掛）並不是獨立的第三方外掛，而是深度整合在 Codex 桌面架構內的內部 RPC 服務：
+- 當使用者透過傳統方式切換第三方 API 或自訂模型時，往往會用自訂 Token 覆蓋掉 `C:\Users\<使用者>\.codex\auth.json`。
+- 一旦 `auth.json` 的原廠 ChatGPT OAuth 憑證失效或被清空，Codex 桌面主程序會判定為離線未認證狀態，進而**停止載入內建瀏覽器伺服程序（Browser Service / Playwright RPC Bridge）**。
+- 這會導致在提示詞中呼叫 `[@瀏覽器]` 時，出現找不到可用的瀏覽器實例、擴充元件無法通訊或功能反灰。
+
+### 2. 核心解決方案：雙軌憑證保留架構 (Dual-Credential Setup)
+要讓 Gemini 代理與原廠瀏覽器完美共存，關鍵在於**「分離模型路由與原廠認證」**：
+
+1. **保留原廠帳號憑證（不覆蓋 `auth.json`）**：
+   - 將帶有有效 ChatGPT / OpenAI 登入狀態的 `auth.json` 妥善保存（建議備份為 `auth.json.bak_chatgpt_oauth`）。
+   - 切換至 Gemini 代理時，**絕對不要清除或覆寫 `auth.json`**，讓 Codex 桌面端維持完整的原廠元件授權狀態。
+
+2. **僅透過組態檔路由模型流量**：
+   - 在 `~/.codex/config.toml` 或 CC Switch 中，只修改模型提供者與 Base URL：
+     ```toml
+     model_provider = "gemini-oauth"
+     
+     [model_providers.gemini-oauth]
+     base_url = "http://127.0.0.1:8317/v1"
+     wire_specification = "responses"
+     requires_openai_auth = true
+     ```
+   - 如此一來，所有的模型推理、對話生成皆導向本機的 CLIProxyAPI 轉發至 Google Antigravity，而桌面端原廠的 In-app Browser、檔案拖曳、擴充套件橋接依舊維持正常運作！
+
+### 3. Gemini 模式下瀏覽器自動化操作實務 (Node RPC)
+在 Gemini 模式下，AI 模型依然可以直接透過 Codex 原廠底層的 Node RPC 協定對內建瀏覽器進行高階自動化：
+
+```javascript
+// 1. 初始化 Codex 桌面瀏覽器環境
+await nodeRepl.rpc("browser", {
+  method: "setup",
+  params: { environment: "codex-app" }
+});
+
+// 2. 動態枚舉瀏覽器實例（取得 In-app Browser ID）
+const browsers = await nodeRepl.rpc("browser", {
+  method: "execute",
+  params: { type: "list_browsers" }
+});
+// 傳回範例：[{"id":"3", "name":"Codex In-app Browser", "type":"iab"}]
+// 注意：每次 Codex Desktop 重新啟動，Browser ID 會重新編配，務必動態取得。
+
+// 3. 鎖定分頁並執行 DOM 操作 / Playwright 動作
+await nodeRepl.rpc("browser", {
+  method: "execute",
+  params: {
+    type: "playwright_locator_click",
+    browser_id: targetBrowserId,
+    tab_id: targetTabId,
+    selector: "button:has-text('Create repository')"
+  }
+});
+```
+
+---
+
+---
+
 ## ❓ 常見問題與排查 (FAQ)
 
 ### Q1: 為什麼 OSS 120B 沒有思考滑塊？
@@ -309,6 +371,28 @@ $Shortcut.Save()
 1. 檢查代理是否正在運行：工作管理員確認是否存在 `cli-proxy-api.exe`。
 2. 檢查 Port 8317：在 PowerShell 執行 `Test-NetConnection -ComputerName 127.0.0.1 -Port 8317`。
 3. 若需手動啟動，可雙擊桌面的 `2. 啟動 Gemini 代理伺服器`。
+
+---
+
+### Q6: 執行 Git Push 或終端機推送時，跳出 `git-remote-https.exe 應用程式錯誤 (記憶體不能為 read)` 彈窗？
+**解答**：
+- **現象**：在 Codex 終端機或某些 Windows 受限沙盒環境中執行 `git push -u origin main`，系統彈出錯誤對話框：「位於 0x... 的指令參考位於 0x00000000 的記憶體。該記憶體不能為 read。」
+- **原因**：Codex 終端機預設執行於 Windows 隔離沙盒權限環境（如 `CodexSandboxOffline`）。當 Git 透過 HTTPS 連線進行驗證時，Windows Git 認證輔助程式（Git Credential Manager / DPAPI 保管庫）嘗試呼叫桌面 GUI 或加密服務失敗，底層存取空指標引發 `git-remote-https.exe` 崩潰。
+- **解決方案**：
+  1. **避免在沙盒命令列使用 Git HTTPS 推送**：使用整合的 GitHub Connector API（Contents API / Commits API）直接完成遠端檔案同步與提交，不經過本機 Git 認證堆疊，徹底免除崩潰。
+  2. **一般終端機執行**：若要在本機使用 Git 指令，請開啟正常的 Windows Terminal / CMD（獨立於 Codex 沙盒之外），執行專案內附的 `push_to_github.bat`，即可正常彈出使用者認證。
+  3. **改用 SSH 金鑰**：將 Remote URL 改為 SSH 協議（`git@github.com:...`），避開 Windows Credential Manager 的 HTTPS 視窗調用。
+
+### Q7: 為什麼切換第三方自訂模型後，Codex 原廠功能（內建瀏覽器、外掛）會失效？
+**解答**：
+- 請檢查 `C:\Users\<使用者>\.codex\auth.json`。若被第三方 API 切換工具覆蓋成虛擬 Token（例如 `Bearer dummy`），原廠服務將無法通過身份驗證。
+- 正確做法為：恢復原本登入的官方 `auth.json`，僅透過 `config.toml` 或 CC Switch 將模型推理流量分流至 `http://127.0.0.1:8317/v1`。
+
+### Q8: 自動化操作 Codex 內建瀏覽器（In-app Browser）之注意事項與防踩坑指南
+**解答**：
+- **重啟後 Browser ID 變更**：每次 Codex Desktop 重新啟動後，內建瀏覽器（`type: "iab"`）與外部擴充套件（`type: "extension"`）的 ID 都會重新分配，自動化腳本需先執行 `list_browsers` 動態辨識目前 In-app Browser 的 ID（如由 `1` 變為 `3`）。
+- **長表單定位與提交**：GitHub 等現代網頁在建立倉庫時，底部的「Create repository」按鈕常位於可視範圍之外，使用 Playwright Locator 語法（例如 `button:has-text('Create repository')`）或滾動至底部後點擊，比靜態的 `node_id` 更具容錯性。
+- **避免頁面重整阻塞**：在瀏覽器 RPC 中調用 `location.reload()` 時，若等待頁面生命週期回傳可能會引發較長時間的阻塞，建議直接讀取 DOM 或導向新 URL，以利流程順暢。
 
 ---
 
