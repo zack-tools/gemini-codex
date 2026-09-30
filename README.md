@@ -15,6 +15,7 @@
 - [步驟四：配置 CC Switch 實現動態切換](#步驟四配置-cc-switch-實現動態切換)
 - [步驟五：設定 Windows 開機靜默自啟動](#步驟五設定-windows-開機靜默自啟動)
 - [讓 Codex 原廠「[@瀏覽器]」在 Gemini 模式下完美啟動](#-讓-codex-原廠瀏覽器在-gemini-模式下完美啟動)
+- [訂閱額度查詢（check-quota）](#訂閱額度查詢check-quota)
 - [常見問題與排查 (FAQ)](#-常見問題與排查-faq)
 
 ---
@@ -352,6 +353,58 @@ await nodeRepl.rpc("browser", {
 
 ---
 
+## 訂閱額度查詢（check-quota）
+
+查詢 Google / Gemini、Anthropic / Claude 在 **Antigravity** 的額度，以及 OpenAI / Codex 的 **ChatGPT 訂閱**額度。使用 Python 3.9 以上與標準函式庫，不需額外安裝套件。
+
+在儲存庫目錄執行：
+
+```powershell
+.\check-quota.bat
+.\check-quota.bat --provider openai
+.\check-quota.bat --provider antigravity
+.\check-quota.bat --json
+.\check-quota.bat --provider openai --openai-auth "D:\private\auth.json"
+```
+
+批次檔優先使用 `%LOCALAPPDATA%/Python/pythoncore-3.13-64/python.exe`；不存在時測試 `py -3`，Launcher 不可用時改用 PATH 中的 `python`。也可直接執行 `python check_quota.py --json`。若要直接輸入 `check-quota`，將儲存庫目錄加入 PATH。
+
+### 憑證與查詢範圍
+
+| 顯示標題 | 額度來源 | 憑證位置 |
+| --- | --- | --- |
+| Google / Gemini | Antigravity | `~/.cli-proxy-api/antigravity-*.json` 的第一個匹配檔案 |
+| Anthropic / Claude | Antigravity | 同上 |
+| OpenAI / Codex | ChatGPT 訂閱 | `--openai-auth` 指定檔案，否則讀取 `$env:CODEX_HOME/auth.json`，未設定時為 `~/.codex/auth.json` |
+
+Gemini 與 Claude 欄位只代表上述 Antigravity 帳號，不代表 Gemini App、Gemini API 或 Claude 官方訂閱。Codex 使用 OAuth `access_token` 與可用的 `account_id`，支援 Codex 的巢狀 `tokens` 格式與頂層 token 格式；不使用 API key 查詢訂閱額度，也不包含 API 計費餘額。只存於系統金鑰圈的憑證目前不支援。
+
+OpenAI OAuth 失效時提示執行 `codex login`，不自行刷新或改寫 OpenAI 憑證。Antigravity 在 HTTP 401 時可嘗試刷新 token，須預先設定 `ANTIGRAVITY_OAUTH_CLIENT_ID` 與 `ANTIGRAVITY_OAUTH_CLIENT_SECRET` 環境變數（使用與該憑證相符的 OAuth client 設定）；成功時會更新原憑證檔的 access token。未設定時請透過原登入工具重新登入；既有 access token 有效時不需要這兩個變數。儲存庫不內嵌 OAuth client 設定。請勿將憑證檔加入儲存庫；輸出不包含 token。
+
+### 額度判讀與輸出
+
+- 先讀取 Antigravity `fetchAvailableModels`，再用 `retrieveUserQuota` 的逐模型 bucket 補充明確比例。實測前者省略比例時，後者可明確回傳 `0`；缺值不直接假設為 0% 或 100%。
+- 排除 `tab_flash_lite_preview` 等內部補全模型，避免把它們的 100% 誤當 Gemini 額度。
+- 同一系列中，比例與重置時間都相同的模型合併顯示；不同數值分開列出。畫面顯示帳號、額度來源、剩餘額度與重置時間，所有時間使用台北時區。
+- Codex 剩餘比例為 `100 - used_percent`，範圍限制在 0–100；顯示 API 實際回傳的視窗，例如 5 小時、每週與額外限制。
+- 查詢端點屬服務內部介面，格式可能變動。補充額度端點失敗時保留模型清單的資料；仍無比例則顯示未知。一家服務查詢失敗不會阻止另一家輸出。
+
+JSON 保留既有 `account`、`queryTime`、`gemini`、`claudeResetTime`，新增 `geminiModels`、`claudeModels` 與 `openai.rateLimits`。逐模型欄位包含 `modelId`、`percent`、`resetTimeLocal`；Codex 視窗包含 `remainingPercent`、`windowDurationSeconds`、`resetsAt`、`resetTimeLocal`。缺值為 `null`；Antigravity 缺少重置時間時 `resetTimeLocal` 為 `N/A`。使用 `--provider openai` 時只輸出 `openai`。
+
+結束碼：所選服務全部成功為 `0`，任一服務查詢失敗為 `1`；參數錯誤為 `2`。部分失敗時 JSON 仍包含成功服務的結果，因此自動化呼叫應同時檢查結束碼與 `error` 欄位。Antigravity 補充查詢失敗但模型清單成功屬降級成功，可能仍回傳 `0`。
+
+### 技能與驗證
+
+`skills/check-model-quota/` 可複製到 Codex 的 skills 目錄。根目錄與技能內各保留一份 `check_quota.py`，修改時須同步。
+
+```powershell
+python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.py"
+```
+
+測試涵蓋 OAuth 格式、憑證錯誤、視窗換算、服務失敗隔離、內部模型排除、明確零額度、查詢降級與不同重置時間分組；不需要真實憑證。
+
+---
+
 ## ❓ 常見問題與排查 (FAQ)
 
 ### Q1: 為什麼 OSS 120B 沒有思考滑塊？
@@ -416,14 +469,10 @@ await nodeRepl.rpc("browser", {
      - 清理完成後，**請徹底關閉 Codex 桌面版（從系統匣退出）並重新開啟**，釋放記憶體中的舊快取，即可在舊對話中跨廠商無縫接續！
 
 ### Q11: 出現 `429 Too Many Requests (exceeded retry limit)`？如何查詢剩餘額度百分比？
-**解答**：
-- **現象**：連續高頻發送請求或 Context 較大時，代理回傳 `429 Too Many Requests`。
-- **原因與配額機制**：
-  1. Google Antigravity 的 `free-tier` 採用滾動時間窗口（Rate Limit Cooldown，如 5 小時窗口與請求頻率控制）。429 僅為暫時性保護機制，稍候片刻冷卻後系統即自動解除限制，並非封號或點數用完。
-  2. Google 官方後端 API（`cloudcode-pa.googleapis.com`）對個人免費等級**並無公開具體剩餘 % 數的查詢 API**（只回傳帳號層級為 `free-tier` 與啟用狀態 `disabled: false`）。
-- **建議技巧**：
-  - 日常 Coding 優先選擇速度極快、配額寬裕的 **`gemini-3.7-flash-high`** 或 **`gemini-3.8-flash-medium`**。
-  - 遇到複雜重構、深度架構推理時再切換至 **`gemini-3.1-pro-high`** 或 **`claude-sonnet-4-6`**。
+
+執行 `check-quota.bat --provider antigravity` 查看 Gemini / Claude 的剩餘比例與台北重置時間；使用 `--json` 查看逐模型資料。完整用法見[訂閱額度查詢](#訂閱額度查詢check-quota)。
+
+429 可能涉及額度耗盡或短時間請求限制，應搭配錯誤內容與額度結果判斷。比例為 0% 時依回傳重置時間安排重試；未知表示未取得比例，不代表可用額度充足。切換模型是否有幫助，應看該模型實際剩餘額度。
 
 ### Q12: 歷史對話無法開啟並報錯 `Model provider cc-switch not found`？
 **解答**：
