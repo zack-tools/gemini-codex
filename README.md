@@ -394,8 +394,61 @@ await nodeRepl.rpc("browser", {
 - **長表單定位與提交**：GitHub 等現代網頁在建立倉庫時，底部的「Create repository」按鈕常位於可視範圍之外，使用 Playwright Locator 語法（例如 `button:has-text('Create repository')`）或滾動至底部後點擊，比靜態的 `node_id` 更具容錯性。
 - **避免頁面重整阻塞**：在瀏覽器 RPC 中調用 `location.reload()` 時，若等待頁面生命週期回傳可能會引發較長時間的阻塞，建議直接讀取 DOM 或導向新 URL，以利流程順暢。
 
+### Q9: 切換至 Gemini 後 Codex 提示 `The 'xxx' model is not supported when using Codex with a ChatGPT account`？
+**解答**：
+- **現象**：在 Codex 桌面版發送訊息時跳出 `The 'claude-sonnet-4-6' / 'gemini-3.8-flash-high' model is not supported when using Codex with a ChatGPT account`。
+- **原因**：Provider 配置中被標記為 `requires_openai_auth = true`。Codex 桌面版會強制抓取本地登入的 ChatGPT 官方 Token 去比對該帳號允許的模型清單，而官方帳號不支援第三方模型。
+- **解決方案**：
+  在 `~/.codex/config.toml`（以及 CC Switch 資料庫 `cc-switch.db` 的 Provider 配置）中，將 `requires_openai_auth` 改為 **`false`**，並明確宣告 `experimental_bearer_token = "sk-gemini-local"`。這樣 Codex 就會跳過官方帳號校驗，直接將請求轉發至本地代理。
+
+### Q10: 切回 OpenAI 後在舊對話繼續傳訊，報錯 `The encrypted content for item rs_resp_req_vrtx_... could not be verified. Reason: Encrypted content could not be decrypted or parsed`？
+**解答**：
+- **現象**：在 Gemini/Claude 聊完幾輪後切回 OpenAI 官方，直接在同一個舊對話輸入訊息時發生 400 報錯。
+- **原因**：
+  1. Gemini/Claude 在生成思考過程時，Google/Vertex 端點會對推理內容進行私鑰加密簽章（包含 `cpa-gemini-responses-carrier-v1` 或 `rs_resp_req_vrtx_...` 等標籤）。
+  2. 該加密區塊會被 Codex 保存在 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` 及 SQLite 資料庫中。
+  3. 當您在同一個舊對話中切換到 OpenAI 繼續發言時，Codex 將整段歷史（包含 Google 加密區塊）送至 OpenAI 官方伺服器，OpenAI 無法解密 Google 的專屬簽章，因而拒絕請求。
+- **解決方案**：
+  1. **日常最佳做法**：跨 Provider（OpenAI ↔ Gemini/Claude）切換時，直接開一個**新對話（New Chat）**。
+  2. **拯救舊對話（全自動轉義）**：
+     - 使用內建的 MCP Server `session-sanitizer`（直接在對話中對 Codex 說「轉義清理對話」），或執行桌面/工具目錄下的 `轉義清理對話歷史.bat`。
+     - 腳本會自動遍歷並移除所有 Session 檔案與 SQLite 中的 Google 加密推理項（**完全保留所有明文對話與程式碼**）。
+     - 清理完成後，**請徹底關閉 Codex 桌面版（從系統匣退出）並重新開啟**，釋放記憶體中的舊快取，即可在舊對話中跨廠商無縫接續！
+
+### Q11: 出現 `429 Too Many Requests (exceeded retry limit)`？如何查詢剩餘額度百分比？
+**解答**：
+- **現象**：連續高頻發送請求或 Context 較大時，代理回傳 `429 Too Many Requests`。
+- **原因與配額機制**：
+  1. Google Antigravity 的 `free-tier` 採用滾動時間窗口（Rate Limit Cooldown，如 5 小時窗口與請求頻率控制）。429 僅為暫時性保護機制，稍候片刻冷卻後系統即自動解除限制，並非封號或點數用完。
+  2. Google 官方後端 API（`cloudcode-pa.googleapis.com`）對個人免費等級**並無公開具體剩餘 % 數的查詢 API**（只回傳帳號層級為 `free-tier` 與啟用狀態 `disabled: false`）。
+- **建議技巧**：
+  - 日常 Coding 優先選擇速度極快、配額寬裕的 **`gemini-3.7-flash-high`** 或 **`gemini-3.8-flash-medium`**。
+  - 遇到複雜重構、深度架構推理時再切換至 **`gemini-3.1-pro-high`** 或 **`claude-sonnet-4-6`**。
+
+---
+
+## 🤖 自動化自癒配套：MCP Server 與 Skill
+
+為了徹底告別手動執行清理腳本，本架構已整合了全自動的 MCP Server 與 Codex Skill：
+
+### 1. MCP Server：`session-sanitizer`
+* **路徑**：`D:\Tools\CLIProxyAPI\session_sanitizer_mcp.py`
+* **註冊於 `config.toml`**：
+  ```toml
+  [mcp_servers.session-sanitizer]
+  type = "stdio"
+  command = 'C:\Users\Zack.ct.chen\.codex\tools\Office-PowerPoint-MCP-Server\.venv\Scripts\python.exe'
+  args = ['D:\Tools\CLIProxyAPI\session_sanitizer_mcp.py']
+  ```
+* **功能**：
+  - `sanitize_cross_provider_history`: 自動掃描並清理 SQLite 與 Session Rollout JSONL 中的跨廠商加密簽章。
+  - `check_history_status`: 快速檢查當前 Session 是否存留跨廠商衝突項目。
+
+### 2. Codex Skill：`cross-provider-sanitizer`
+* **路徑**：`~/.codex/skills/cross-provider-sanitizer/SKILL.md`
+* **機制**：當 Codex 偵測到使用者在對話中切換了模型，或捕捉到 `invalid_encrypted_content` 等信號時，Skill 會指示 Codex 主動呼叫 `session-sanitizer` 工具進行自動修復，實現零摩擦跨模型體驗。
+
 ---
 
 ## 📄 License
 本設定手冊遵循 [MIT License](LICENSE) 開源分享。
-
