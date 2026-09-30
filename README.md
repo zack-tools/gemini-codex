@@ -427,27 +427,35 @@ await nodeRepl.rpc("browser", {
 
 ### Q12: 歷史對話無法開啟並報錯 `Model provider cc-switch not found`？
 **解答**：
-- **現象**：在 Codex 中嘗試載入舊對話串時，系統彈出錯誤訊息提示找不到 `cc-switch` 這個 Model Provider。
-- **原因**：過去在 Gemini（`cc-switch` 模式）下建立的對話串，其對話內部中繼資料會綁定 `model_provider: "cc-switch"`。當切換回 OpenAI 官方時，若 CC Switch 將 `config.toml` 中的 `[model_providers.cc-switch]` 區塊完全刪除，Codex 重新載入歷史對話時找不到該 Provider 的定義宣告，即會阻擋載入。
-- **解決方案**：
-  在 `~/.codex/config.toml` 以及 CC Switch 的 `codex-official` 範本中**永久保留 `[model_providers.cc-switch]` 宣告**。
-  ```toml
-  [model_providers.cc-switch]
-  name = "CC Switch"
-  base_url = "http://127.0.0.1:8317/v1"
-  wire_api = "responses"
-  requires_openai_auth = false
-  experimental_bearer_token = "sk-gemini-local"
-  ```
-  即使切換回 OpenAI 官方頻道，只要保留此定義區塊，Codex 就能隨時順暢打開過去所有在 `cc-switch` 建立的歷史對話，絕不再報錯！
+- **現象**：在 Codex Desktop 中嘗試載入舊對話串時，系統彈出錯誤訊息提示找不到 `cc-switch` 這個 Model Provider，歷史對話中斷。
+- **深層原因**：
+  1. 過去在舊版 CC Switch 下建立的對話串，其對話內部中繼資料（Session Metadata）永久寫入了 `model_provider: "cc-switch"`。
+  2. 新版 CC Switch 改用 `ROUTE_ID = "custom"`，並在 Rust 源碼（`src/live/project/codex.rs`）中主動將非當前使用且標記為 retired 的其他 provider 表（包含 `cc-switch`）刪除。
+  3. 當 CC Switch 切換模型時，`config.toml` 中僅存在 `[model_providers.custom]`，Codex 重新載入歷史對話時找不到 `[model_providers.cc-switch]` 的宣告，即拋出 `Model provider 'cc-switch' not found`。
+- **徹底解決方案（源碼層級修復）**：
+  在 CC Switch 的 Rust 源碼中：
+  1. `CodexConfigPatch::write_route`：在寫入第三方自訂路由時，**同時寫入並保持 `[model_providers.custom]` 與 `[model_providers.cc-switch]` 雙路由別名**。
+  2. 垃圾清理白名單：將 `cc-switch` 排除在清理名單之外（`&& *id != LEGACY_REROUTE_ID`），永不自動刪除。
+  3. 取消 retired 標記：在 `codex_direct.rs` 中取消將 `cc-switch` 加入 retired 清單。
+  如此一來，無論使用者切換到任何模式，`config.toml` 中都始終存在 `[model_providers.custom]` 與 `[model_providers.cc-switch]`，所有新舊歷史對話串皆能完美相容無損載入！
 
-### Q13: 切換模型後出現 `Reconnecting... waiting for network` 與 `Connection failed: error sending request`？
+### Q13: 切換模型後出現 `Reconnecting... waiting for network`、`Connection failed` 或 `The model is not supported with a ChatGPT account`？
 **解答**：
-- **現象**：切換為 GPT 等官方模型後，視窗底部持續顯示「Reconnecting... waiting for network」，訊息無法成功送出，最終跳出連線失敗。
-- **原因**：切換為官方 OpenAI 時，設定檔中殘留了 `model_provider = "custom"` 以及帶有 `supports_websockets = true` 卻缺乏有效 WebSocket 端點的 `[model_providers.custom]` 區塊。Codex 桌面版會誤以為必須透過一個無效的自訂 WebSocket 連線，因而陷入連線重試死循環。
-- **解決方案**：
-  1. 在 OpenAI 官方模式下，**徹底移除 `model_provider = "custom"` 與 `[model_providers.custom]`**。Codex 原生連線直接走官方標準端點，完全免除 WebSocket 假死問題。
-  2. 已同步更新 CC Switch 資料庫的 `codex-official` 範本，每次點擊切換官方時自動套用標準連線，杜絕無效連線錯誤。
+- **現象**：切換為 Gemini 或 Claude 等第三方模型後，對話介面跳出「The 'xxx' model is not supported when using Codex with a ChatGPT account.」，或者視窗底部持續顯示「Reconnecting... waiting for network」，訊息無法成功送出，最終跳出連線失敗。
+- **深層原因**：
+  1. CC Switch 原先的 `requires_openai_auth` 邏輯會偵測本機磁碟（`auth.json`）是否存在 ChatGPT 登入凭證。若有登入，會自動將 `requires_openai_auth` 設為 `true`。
+  2. 在 Codex Desktop 26.x 中，一旦自訂路由被標記為 `requires_openai_auth = true`：
+     - Codex 會強制進行 ChatGPT 帳號的模型白名單檢查；由於 Gemini 與 Claude 不在 OpenAI 帳號的訂閱清單內，Codex 前端直接報錯攔截。
+     - Codex 會嘗試透過 OpenAI 專屬的 WebSocket 協議傳輸對話；但本地代理（CLIProxyAPI）是標準 HTTP REST 代理，不支援 WebSocket 握手，導致 Codex 陷入長達數十秒的 WebSocket 重連死循環，最後拋出 `Connection failed: error sending request`。
+- **徹底解決方案（源碼層級修復）**：
+  1. 在 `D:\Git\cc-switch\src-tauri\src\live\project\codex.rs` 中，將第三方路由的 `requires_openai_auth` 恆定回傳 `false`：
+     ```rust
+     pub fn requires_openai_auth(_auth: RouteAuth, _login_on_disk: bool) -> bool {
+         false
+     }
+     ```
+  2. 當 `requires_openai_auth = false` 時，Codex Desktop 會以標準 HTTP POST 攜帶 `Authorization: Bearer <token>` 直接向本機端點（`http://127.0.0.1:8317/v1`）發送請求，完全跳過帳號檢查與 WebSocket 隧道，所有 Gemini、Claude、DeepSeek 模型均能光速回應！
+
 
 ---
 
