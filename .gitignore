@@ -1,0 +1,18 @@
+# Binaries & archives
+*.exe
+*.zip
+*.dll
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+
+# Local sensitive configuration and data
+config.yaml
+*.token
+*.db
+*.log
+
