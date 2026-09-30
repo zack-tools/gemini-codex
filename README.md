@@ -425,6 +425,30 @@ await nodeRepl.rpc("browser", {
   - 日常 Coding 優先選擇速度極快、配額寬裕的 **`gemini-3.7-flash-high`** 或 **`gemini-3.8-flash-medium`**。
   - 遇到複雜重構、深度架構推理時再切換至 **`gemini-3.1-pro-high`** 或 **`claude-sonnet-4-6`**。
 
+### Q12: 歷史對話無法開啟並報錯 `Model provider cc-switch not found`？
+**解答**：
+- **現象**：在 Codex 中嘗試載入舊對話串時，系統彈出錯誤訊息提示找不到 `cc-switch` 這個 Model Provider。
+- **原因**：過去在 Gemini（`cc-switch` 模式）下建立的對話串，其對話內部中繼資料會綁定 `model_provider: "cc-switch"`。當切換回 OpenAI 官方時，若 CC Switch 將 `config.toml` 中的 `[model_providers.cc-switch]` 區塊完全刪除，Codex 重新載入歷史對話時找不到該 Provider 的定義宣告，即會阻擋載入。
+- **解決方案**：
+  在 `~/.codex/config.toml` 以及 CC Switch 的 `codex-official` 範本中**永久保留 `[model_providers.cc-switch]` 宣告**。
+  ```toml
+  [model_providers.cc-switch]
+  name = "CC Switch"
+  base_url = "http://127.0.0.1:8317/v1"
+  wire_api = "responses"
+  requires_openai_auth = false
+  experimental_bearer_token = "sk-gemini-local"
+  ```
+  即使切換回 OpenAI 官方頻道，只要保留此定義區塊，Codex 就能隨時順暢打開過去所有在 `cc-switch` 建立的歷史對話，絕不再報錯！
+
+### Q13: 切換模型後出現 `Reconnecting... waiting for network` 與 `Connection failed: error sending request`？
+**解答**：
+- **現象**：切換為 GPT 等官方模型後，視窗底部持續顯示「Reconnecting... waiting for network」，訊息無法成功送出，最終跳出連線失敗。
+- **原因**：切換為官方 OpenAI 時，設定檔中殘留了 `model_provider = "custom"` 以及帶有 `supports_websockets = true` 卻缺乏有效 WebSocket 端點的 `[model_providers.custom]` 區塊。Codex 桌面版會誤以為必須透過一個無效的自訂 WebSocket 連線，因而陷入連線重試死循環。
+- **解決方案**：
+  1. 在 OpenAI 官方模式下，**徹底移除 `model_provider = "custom"` 與 `[model_providers.custom]`**。Codex 原生連線直接走官方標準端點，完全免除 WebSocket 假死問題。
+  2. 已同步更新 CC Switch 資料庫的 `codex-official` 範本，每次點擊切換官方時自動套用標準連線，杜絕無效連線錯誤。
+
 ---
 
 ## 🤖 自動化自癒配套：MCP Server 與 Skill
