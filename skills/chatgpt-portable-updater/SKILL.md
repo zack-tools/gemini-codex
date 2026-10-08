@@ -18,7 +18,7 @@ This skill allows Antigravity to check for, download, extract, and maintain port
 
 2. **Zero-Install Extraction**:
    * Downloads official `.msix` directly to `%USERPROFILE%\Downloads\`.
-   * Extracts static application payload into target directory (e.g., `D:\OpenAI.Codex_<version>_x64__2p2nqsd0c76g0`) using `7z.exe`.
+   * Extracts static application payload into target directory (e.g., `<TargetParentDir>\OpenAI.Codex_<version>_x64__2p2nqsd0c76g0`) using `7z.exe`.
    * Never invokes `Add-AppxPackage` or system package registers.
 
 3. **Shortcut Redirection**:
@@ -29,20 +29,22 @@ This skill allows Antigravity to check for, download, extract, and maintain port
 ## How to Run
 
 ### Via PowerShell Helper
-From the skill directory or `D:\Codex\`:
+From the repository root or skill directory:
 
 ```powershell
-.\scripts\Update-ChatGPT-Portable.ps1
+.\Update-ChatGPT-Portable.ps1
+# 或從本 skill 目錄：
+.\scripts\Update-ChatGPT-Portable.ps1 -TargetParentDir "D:\"
 ```
 
 Parameters:
-* `-TargetParentDir "D:\"` : Location to extract the portable app version folders.
+* `-TargetParentDir` : Location to extract portable app version folders (defaults to `D:\` or custom directory).
 * `-Force` : Forces re-download and re-extraction even if the latest version directory already exists.
 
 ### Via Batch File
 Double-click or run from command prompt:
 ```cmd
-D:\Codex\Update-ChatGPT-Portable.bat
+Update-ChatGPT-Portable.bat
 ```
 
 ## Verification
@@ -54,3 +56,4 @@ Get-AppxPackage -Name "*OpenAI.Codex*"
 Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.DisplayName -match "ChatGPT|Codex" }
 ```
 Both queries should return 0 results.
+

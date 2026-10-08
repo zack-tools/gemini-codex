@@ -18,10 +18,14 @@ When switching back to OpenAI official models, OpenAI's API rejects these items 
    If the user reports `invalid_encrypted_content`, `Encrypted content could not be decrypted or parsed`, or mentions switching models from Gemini to OpenAI (or vice versa):
    
 2. **Execute Sanitization**:
-   - Use the MCP tool `session-sanitizer` (`sanitize_cross_provider_history`) to immediately strip incompatible carrier blocks from both SQLite and rollout JSONL session files.
-   - Alternatively, execute:
-     `python "D:\Tools\CLIProxyAPI\sanitize_history.py"`
+   - Prefer using the MCP tool `session-sanitizer` (`sanitize_cross_provider_history`) to immediately strip incompatible carrier blocks from both SQLite and rollout JSONL session files.
+   - Alternatively, execute the repository sanitize script relative to this project root:
+     - On macOS / Linux:
+       `python3 sanitize_history.py` or `./轉譯清理對話歷史.sh`
+     - On Windows:
+       `python sanitize_history.py` or `轉譯清理對話歷史.bat`
 
 3. **User Guidance**:
    - Remind the user that after sanitizing on disk, restarting Codex Desktop (Quit and Reopen) will reload the clean session into memory.
    - If the user prefers not to restart Codex, advise them to click **New Chat** to start a clean thread immediately.
+
