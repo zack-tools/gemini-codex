@@ -218,7 +218,7 @@ for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(model
 
 data["models"] = new_models
 
-catalog_path = os.path.expanduser("~/.codex/model_catalog.json")
+catalog_path = r"C:/Users/Zack.ct.chen/.codex/model_catalog.json"
 with open(catalog_path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -606,7 +606,7 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
   ```toml
   [mcp_servers.session-sanitizer]
   type = "stdio"
-  command = 'C:\Users\<使用者名稱>\.codex\tools\Office-PowerPoint-MCP-Server\.venv\Scripts\python.exe'
+  command = 'C:\Users\Zack.ct.chen\.codex\tools\Office-PowerPoint-MCP-Server\.venv\Scripts\python.exe'
   args = ['D:\Tools\CLIProxyAPI\session_sanitizer_mcp.py']
   ```
 * **功能**：
@@ -628,6 +628,28 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
   - 自動修正 `cua_node` 中 `%40oai`、`%40img`、`%40statsig` 符號連結與 Statsig 變數檔，保證 Computer Use 開箱即用。
   - 保證 Windows 系統中「已安裝的應用程式」與登錄檔 0 殘留、0 污染。
 
+
+---
+
+
+### 4. 模型額度守護與自動切換：`model-quota-guard`（Skill 與 CLI 配套）
+* **Skill 路徑**：`~/.codex/skills/model-quota-guard/SKILL.md`（收錄於本專案 `skills/model-quota-guard/`）
+* **核心工具**：`quota_switch_guard.py`、`test_quota_switch_guard.py`
+* **快速腳本**：
+  - macOS / Linux：`./quota-guard.sh`、`./switch-model.sh <openai|gemini|claude> [--restart]`
+  - Windows：`quota-guard.bat`、`switch-model.bat <openai|gemini|claude> [--restart]`
+* **運作機制與策略階層（Priority Chain）**：
+  1. **首選目標（Primary Default）**：OpenAI 官方（`gpt-5.5` 或訂閱預設）。
+  2. **次選備援（Fallback Default）**：當 OpenAI 額度耗盡時，自動備援切換至 Gemini-OAuth（`gemini-3.8-flash-high`）。
+  3. **雙重耗盡防護（Dual-Depleted Alert）**：若 OpenAI 與 Gemini 兩者額度皆見底（<= 10% 預警、<= 5% 告警），觸發雙重警報並引導切換至 Claude（`claude-sonnet-4-6`）。
+* **兩段式門檻決策**：
+  - **剩餘 > 10%**：額度充裕，靜默作業不打擾。
+  - **剩餘 <= 10% 且 > 5%**：【額度預警】於回覆中主動提示剩餘水位與預計重置時間。
+  - **剩餘 <= 5%**：【臨界切換】攔截高消耗任務，主動向使用者確認切換模型。
+* **安全自癒與重啟**：
+  - 切換至 OpenAI 時，自動執行歷史消毒腳本（`sanitize_history.py`），掃除 Vertex 內部 carrier blocks，杜絕 `invalid_encrypted_content` 跨模型解密報錯。
+  - 自動備份 `~/.codex/config.toml`，並同步更新 `~/.cc-switch` 的資料庫與狀態檔。
+  - 支援跨平台（macOS AppleScript / Windows PowerShell）分離進程優雅重啟 Codex 桌面客戶端。
 
 ---
 
