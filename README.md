@@ -508,6 +508,34 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
 
 ---
 
+### Q14: 免安裝可攜版 Codex Desktop 的 Computer Use 出現 `Cannot find module '@oai/sky'` 或無法操控桌面？
+**解答**：
+- **現象**：使用免安裝（7-Zip 解壓 MSIX）方式運行的 Codex Desktop 在嘗試執行桌面操作或調用 Computer Use 相關工具時，後端 Node.js CUA 進程崩潰或報錯 `Cannot find module '@oai/sky'`。
+- **深層原因**：
+  1. 官方 `OpenAI.Codex_*.msix` 封裝中包含 Node.js 執行環境（`app\resources\cua_node`），其內部使用 npm scoped packages（以 `@` 開頭，例如 `@oai/sky`、`@img/sharp-win32-x64-msvc`、`@statsig/client-core`）。
+  2. 使用 7-Zip 直接解壓縮 MSIX 時，7-Zip 會將檔名中的保留字元原樣還原為 URL 百分比編碼（Percent-encoding）：
+     - 目錄 `@oai` 被解壓為 `%40oai`
+     - 目錄 `@img` 被解壓為 `%40img`
+     - 目錄 `@statsig` 被解壓為 `%40statsig`
+     - 檔案 `$_StatsigGlobal.js` 被解壓為 `%24_StatsigGlobal.js`
+  3. Node.js 的模組解析器（Module Resolution）遵循標準路徑解析，在尋找 `@oai/sky` 時無法辨識 `%40oai` 目錄，直接引發模組缺失異常。
+- **解決方案與自動自癒**：
+  1. **手動建立目錄符號連結（Junctions）**：
+     在 `app\resources\cua_node\bin\node_modules` 目錄下建立 Junctions：
+     ```powershell
+     New-Item -ItemType Junction -Path "@oai" -Target "%40oai"
+     New-Item -ItemType Junction -Path "@img" -Target "%40img"
+     New-Item -ItemType Junction -Path "@statsig" -Target "%40statsig"
+     Copy-Item "%40statsig\client-core\src\%24_StatsigGlobal.js" "%40statsig\client-core\src\$_StatsigGlobal.js"
+     ```
+  2. **腳本全自動防護**：本專案已在 `Update-ChatGPT-Portable.ps1` 內建「解壓後自癒修復」邏輯，未來只要執行更新腳本，即會自動校驗並建立符號連結，完全無需手動介入。
+- **架構評估：Codex 原生 Computer Use vs 第三方 Windows-MCP**：
+  - **Codex 原生 Computer Use**：底層透過 C++ 原生 addon 橋接 Windows.Graphics.Capture（WGC）實現 GPU 硬體加速螢幕截圖與低延遲 `SendInput` 鍵鼠模擬，並支援直接列舉呼叫本機應用。
+  - **第三方 Windows-MCP**：主要使用 Windows UI Automation（UIA 結構樹）。缺點是若應用程式採用自繪引擎（例如網頁渲染、Canvas、自訂 WPF 控制項或工控介面），UIA 結構樹常為單一空白畫布無法辨識子節點，且深度遍歷產生數萬 Token 易導致 LLM 上下文耗盡。在 Codex Desktop 環境中，原生 Computer Use 穩定性與效能皆顯著勝出。
+
+
+---
+
 ## 🤖 自動化自癒配套：MCP Server 與 Skill
 
 為了徹底告別手動執行清理腳本，本架構已整合了全自動的 MCP Server 與 Codex Skill：
@@ -528,6 +556,18 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
 ### 2. Codex Skill：`cross-provider-sanitizer`
 * **路徑**：`~/.codex/skills/cross-provider-sanitizer/SKILL.md`
 * **機制**：當 Codex 偵測到使用者在對話中切換了模型，或捕捉到 `invalid_encrypted_content` 等信號時，Skill 會指示 Codex 主動呼叫 `session-sanitizer` 工具進行自動修復，實現零摩擦跨模型體驗。
+
+---
+
+### 3. Codex Skill：`chatgpt-portable-updater`（可攜免安裝版更新維護）
+* **路徑**：`~/.codex/skills/chatgpt-portable-updater/SKILL.md`（本專案收錄於 `skills/chatgpt-portable-updater/`）
+* **配套腳本**：`Update-ChatGPT-Portable.ps1`、`Update-ChatGPT-Portable.bat`、`wingets.ps1`
+* **機制**：
+  - 透過微軟官方 Store FE3 SOAP API 直接向微軟 CDN 查詢並下載最新官方 `OpenAI.Codex` MSIX 套件。
+  - 採用 7-Zip 解壓縮靜態 Payload，並自動重定向桌面快捷方式（`ChatGPT.exe` / `Codex.exe`）。
+  - 自動修正 `cua_node` 中 `%40oai`、`%40img`、`%40statsig` 符號連結與 Statsig 變數檔，保證 Computer Use 開箱即用。
+  - 保證 Windows 系統中「已安裝的應用程式」與登錄檔 0 殘留、0 污染。
+
 
 ---
 
