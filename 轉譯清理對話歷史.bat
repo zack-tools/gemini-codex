@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================================
-echo   正在轉義清理 Codex 歷史對話中的跨廠商加密思考簽章...
+echo   正在轉譯清理 Codex 歷史對話中的跨廠商加密思考簽章...
 echo ========================================================
 python "D:\Tools\CLIProxyAPI\sanitize_history.py"
 echo.

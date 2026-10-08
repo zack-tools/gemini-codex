@@ -463,8 +463,8 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
   3. 當您在同一個舊對話中切換到 OpenAI 繼續發言時，Codex 將整段歷史（包含 Google 加密區塊）送至 OpenAI 官方伺服器，OpenAI 無法解密 Google 的專屬簽章，因而拒絕請求。
 - **解決方案**：
   1. **日常最佳做法**：跨 Provider（OpenAI ↔ Gemini/Claude）切換時，直接開一個**新對話（New Chat）**。
-  2. **拯救舊對話（全自動轉義）**：
-     - 使用內建的 MCP Server `session-sanitizer`（直接在對話中對 Codex 說「轉義清理對話」），或執行桌面/工具目錄下的 `轉義清理對話歷史.bat`。
+  2. **拯救舊對話（全自動轉譯）**：
+     - 使用內建的 MCP Server `session-sanitizer`（直接在對話中對 Codex 說「轉譯清理對話」），或執行桌面/工具目錄下的 `轉譯清理對話歷史.bat`。
      - 腳本會自動遍歷並移除所有 Session 檔案與 SQLite 中的 Google 加密推理項（**完全保留所有明文對話與程式碼**）。
      - 清理完成後，**請徹底關閉 Codex 桌面版（從系統匣退出）並重新開啟**，釋放記憶體中的舊快取，即可在舊對話中跨廠商無縫接續！
 

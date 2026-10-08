@@ -46,5 +46,5 @@ if sessions_dir.exists():
         except Exception as e:
             pass
 
-print(f"   [OK] 共掃描並轉義修復了 {cleaned_files} 個 Session 檔案，移除了 {total_items_removed} 筆加密思考項。")
-print("\n轉義清理完成！")
+print(f"   [OK] 共掃描並轉譯修復了 {cleaned_files} 個 Session 檔案，移除了 {total_items_removed} 筆加密思考項。")
+print("\n轉譯清理完成！")
