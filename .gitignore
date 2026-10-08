@@ -16,3 +16,7 @@ config.yaml
 *.db
 *.log
 
+
+# macOS & binaries
+.DS_Store
+cli-proxy-api

@@ -2,8 +2,26 @@ import subprocess
 import json
 import copy
 
-exe_path = r"D:/OpenAI.Codex_26.908.4834.0_x64__2p2nqsd0c76g0/app/resources/codex.exe"
-output = subprocess.check_output([exe_path, "debug", "models", "--bundled"])
+import os
+import shutil
+from pathlib import Path
+
+codex_bin = shutil.which("codex")
+if not codex_bin:
+    potential_paths = [
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+        r"D:/OpenAI.Codex_26.908.4834.0_x64__2p2nqsd0c76g0/app/resources/codex.exe",
+    ]
+    for p in potential_paths:
+        if os.path.exists(p):
+            codex_bin = p
+            break
+
+if not codex_bin:
+    raise FileNotFoundError("Could not find 'codex' executable. Please make sure codex is in PATH.")
+
+output = subprocess.check_output([codex_bin, "debug", "models", "--bundled"])
 data = json.loads(output)
 template = data["models"][0]
 
@@ -55,9 +73,11 @@ for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(model
 
 data["models"] = new_models
 
-catalog_path = r"C:/Users/Zack.ct.chen/.codex/model_catalog.json"
+codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+codex_home.mkdir(parents=True, exist_ok=True)
+catalog_path = codex_home / "model_catalog.json"
 with open(catalog_path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
-print("SUCCESS: model_catalog.json updated with clean models!")
+print(f"SUCCESS: {catalog_path} updated with clean models and functional sliders!")
 

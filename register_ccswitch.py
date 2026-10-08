@@ -2,11 +2,16 @@ import sqlite3
 import json
 import time
 
-db_path = r"C:\Users\Zack.ct.chen\.cc-switch\cc-switch.db"
-conn = sqlite3.connect(db_path)
+import os
+from pathlib import Path
+
+cc_switch_dir = Path.home() / ".cc-switch"
+db_path = cc_switch_dir / "cc-switch.db"
+conn = sqlite3.connect(str(db_path))
 cursor = conn.cursor()
 
-catalog_path = r"C:\Users\Zack.ct.chen\.codex\model_catalog.json".replace("\\", "\\\\")
+codex_dir = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+catalog_path = str(codex_dir / "model_catalog.json")
 
 settings_data = {
     "auth": {

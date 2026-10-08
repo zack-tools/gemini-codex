@@ -474,19 +474,79 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
 
 429 可能涉及額度耗盡或短時間請求限制，應搭配錯誤內容與額度結果判斷。比例為 0% 時依回傳重置時間安排重試；未知表示未取得比例，不代表可用額度充足。切換模型是否有幫助，應看該模型實際剩餘額度。
 
-### Q12: 歷史對話無法開啟並報錯 `Model provider cc-switch not found`？
+### Q12: 歷史對話無法開啟並報錯 `Model provider cc-switch-official not found` 或 `cc-switch not found`？
 **解答**：
-- **現象**：在 Codex Desktop 中嘗試載入舊對話串時，系統彈出錯誤訊息提示找不到 `cc-switch` 這個 Model Provider，歷史對話中斷。
+- **現象**：在 Codex Desktop 中嘗試載入舊對話串時，系統彈出錯誤訊息提示 `failed to load configuration: Model provider \`cc-switch-official\` not found` 或 `Model provider \`cc-switch\` not found`，導致歷史對話串中斷且無法繼續。
 - **深層原因**：
-  1. 過去在舊版 CC Switch 下建立的對話串，其對話內部中繼資料（Session Metadata）永久寫入了 `model_provider: "cc-switch"`。
-  2. 新版 CC Switch 改用 `ROUTE_ID = "custom"`，並在 Rust 源碼（`src/live/project/codex.rs`）中主動將非當前使用且標記為 retired 的其他 provider 表（包含 `cc-switch`）刪除。
-  3. 當 CC Switch 切換模型時，`config.toml` 中僅存在 `[model_providers.custom]`，Codex 重新載入歷史對話時找不到 `[model_providers.cc-switch]` 的宣告，即拋出 `Model provider 'cc-switch' not found`。
-- **徹底解決方案（源碼層級修復）**：
-  在 CC Switch 的 Rust 源碼中：
-  1. `CodexConfigPatch::write_route`：在寫入第三方自訂路由時，**同時寫入並保持 `[model_providers.custom]` 與 `[model_providers.cc-switch]` 雙路由別名**。
-  2. 垃圾清理白名單：將 `cc-switch` 排除在清理名單之外（`&& *id != LEGACY_REROUTE_ID`），永不自動刪除。
-  3. 取消 retired 標記：在 `codex_direct.rs` 中取消將 `cc-switch` 加入 retired 清單。
-  如此一來，無論使用者切換到任何模式，`config.toml` 中都始終存在 `[model_providers.custom]` 與 `[model_providers.cc-switch]`，所有新舊歷史對話串皆能完美相容無損載入！
+  1. **歷史中繼資料綁定**：過去在不同版本 CC Switch 下建立的對話串，其內部 Session Metadata（與事件記錄中的 `thread_settings`）永久記錄了建立時的 `model_provider: "cc-switch-official"` 或 `model_provider: "cc-switch"`。
+  2. **客戶端回放機制**：當 Codex Desktop 重新載入歷史對話時，前端會解析並回放該對話的設定，強制要求 `config.toml` 中必須包含該 Provider 名稱的宣告（`[model_providers.<id>]`）。
+  3. **CC Switch 更新或切換覆寫**：新版 CC Switch（如 v4.0.5）將代理路由統一定義為 `[model_providers.custom]`。每當 CC Switch 升級更新、重啟或切換模型接管 Codex 時，若未在通用配置中保留舊別名，會自動重寫 `config.toml`，使舊有宣告被清除，再次引發找不到 Provider 的中斷錯誤。
+
+#### 💻 依作業系統分開說明與處置方案
+
+##### 🍎 macOS 環境
+- **核心路徑**：
+  - Codex 配置檔：`~/.codex/config.toml`（即 `/Users/<使用者名稱>/.codex/config.toml`）
+  - CC Switch 資料庫：`~/.cc-switch/cc-switch.db`
+  - CC Switch 應用程式：`/Applications/CC Switch.app`
+- **方案 A（立即修復當前配置）**：
+  直接在 `~/.codex/config.toml` 末尾補齊雙別名宣告：
+  ```toml
+  [model_providers.cc-switch-official]
+  name = "cc-switch-official"
+  base_url = "http://127.0.0.1:15721/v1"
+  wire_api = "responses"
+  experimental_bearer_token = "PROXY_MANAGED"
+  requires_openai_auth = true
+
+  [model_providers.cc-switch]
+  name = "cc-switch"
+  base_url = "http://127.0.0.1:15721/v1"
+  wire_api = "responses"
+  experimental_bearer_token = "PROXY_MANAGED"
+  requires_openai_auth = true
+  ```
+  *(註：若本機使用獨立 CLIProxyAPI 轉發埠 8317，可將 `base_url` 改為 `http://127.0.0.1:8317/v1` 並將 `requires_openai_auth = false`)*
+- **方案 B（根治：防範 CC Switch 未來更新/切換覆寫）**：
+  CC Switch 在接管時會讀取其本機 SQLite 資料庫中 `settings` 表的 `common_config_codex` 作為共用區塊。透過 Python 腳本將上述別名注入資料庫，日後無論 CC Switch 如何切換或升級更新，皆會自動保留宣告：
+  ```bash
+  python3 -c "import sqlite3, os; p = os.path.expanduser('~/.cc-switch/cc-switch.db'); conn = sqlite3.connect(p); c = conn.cursor(); c.execute('SELECT value FROM settings WHERE key=\\\"common_config_codex\\\"'); row = c.fetchone(); snippet = '''\\n[model_providers.cc-switch-official]\\nname = \\\"cc-switch-official\\\"\\nbase_url = \\\"http://127.0.0.1:15721/v1\\\"\\nwire_api = \\\"responses\\\"\\nexperimental_bearer_token = \\\"PROXY_MANAGED\\\"\\nrequires_openai_auth = true\\n\\n[model_providers.cc-switch]\\nname = \\\"cc-switch\\\"\\nbase_url = \\\"http://127.0.0.1:15721/v1\\\"\\nwire_api = \\\"responses\\\"\\nexperimental_bearer_token = \\\"PROXY_MANAGED\\\"\\nrequires_openai_auth = true\\n'''; (c.execute('UPDATE settings SET value=? WHERE key=\\\"common_config_codex\\\"', (row[0]+snippet,)) if row and '[model_providers.cc-switch-official]' not in row[0] else None); conn.commit(); conn.close(); print('macOS CC Switch 資料庫通用設定更新完成！')"
+  ```
+
+---
+
+##### 🪟 Windows 環境
+- **核心路徑**：
+  - Codex 配置檔：`%USERPROFILE%\\.codex\\config.toml`（例如 `C:\\Users\\<使用者名稱>\\.codex\\config.toml`）
+  - CC Switch 資料庫：`%USERPROFILE%\\.cc-switch\\cc-switch.db`
+  - CC Switch 源碼位置（如自行編譯）：`D:\\Git\\cc-switch\\src-tauri`
+- **方案 A（立即修復當前配置）**：
+  在 `C:\\Users\\<使用者名稱>\\.codex\\config.toml` 中補齊宣告：
+  ```toml
+  [model_providers.cc-switch-official]
+  name = "cc-switch-official"
+  base_url = "http://127.0.0.1:15721/v1"
+  wire_api = "responses"
+  experimental_bearer_token = "PROXY_MANAGED"
+  requires_openai_auth = true
+
+  [model_providers.cc-switch]
+  name = "cc-switch"
+  base_url = "http://127.0.0.1:15721/v1"
+  wire_api = "responses"
+  experimental_bearer_token = "PROXY_MANAGED"
+  requires_openai_auth = true
+  ```
+- **方案 B（根治：防範 CC Switch 未來更新/切換覆寫）**：
+  在 PowerShell / CMD 中執行 Python 腳本將別名注入 Windows 版 CC Switch 資料庫：
+  ```powershell
+  python -c "import sqlite3, os; p = os.path.expanduser('~/.cc-switch/cc-switch.db'); conn = sqlite3.connect(p); c = conn.cursor(); c.execute('SELECT value FROM settings WHERE key=\\\"common_config_codex\\\"'); row = c.fetchone(); snippet = '''`n[model_providers.cc-switch-official]`nname = \\\"cc-switch-official\\\"`nbase_url = \\\"http://127.0.0.1:15721/v1\\\"`nwire_api = \\\"responses\\\"`nexperimental_bearer_token = \\\"PROXY_MANAGED\\\"`nrequires_openai_auth = true`n`n[model_providers.cc-switch]`nname = \\\"cc-switch\\\"`nbase_url = \\\"http://127.0.0.1:15721/v1\\\"`nwire_api = \\\"responses\\\"`nexperimental_bearer_token = \\\"PROXY_MANAGED\\\"`nrequires_openai_auth = true`n'''; (c.execute('UPDATE settings SET value=? WHERE key=\\\"common_config_codex\\\"', (row[0]+snippet,)) if row and '[model_providers.cc-switch-official]' not in row[0] else None); conn.commit(); conn.close(); print('Windows CC Switch 資料庫通用設定更新完成！')"
+  ```
+- **方案 C（自行編譯 CC Switch 的 Rust 源碼層修復）**：
+  在 CC Switch 的 Rust 源碼中（`src/live/project/codex.rs`）：
+  1. `CodexConfigPatch::write_route`：在寫入第三方自訂路由時，**同時寫入並保持 `[model_providers.custom]`、`[model_providers.cc-switch]` 與 `[model_providers.cc-switch-official]` 多別名宣告**。
+  2. 垃圾清理白名單：將 `cc-switch` 與 `cc-switch-official` 排除在清理名單之外（`&& *id != LEGACY_REROUTE_ID`），永不自動刪除。
+  3. 取消 retired 標記：在 `codex_direct.rs` 中取消將舊別名加入 retired 清單。
 
 ### Q13: 切換模型後出現 `Reconnecting... waiting for network`、`Connection failed` 或 `The model is not supported with a ChatGPT account`？
 **解答**：

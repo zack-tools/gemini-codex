@@ -3,10 +3,13 @@ import json
 import shutil
 import os
 
-catalog_path = r"C:\Users\Zack.ct.chen\.codex\model_catalog.json"
-catalog_bak = r"C:\Users\Zack.ct.chen\.codex\model_catalog.json.bak"
-cache_path = r"C:\Users\Zack.ct.chen\.codex\models_cache.json"
-cache_bak = r"C:\Users\Zack.ct.chen\.codex\models_cache.json.bak_openai"
+from pathlib import Path
+
+codex_dir = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+catalog_path = codex_dir / "model_catalog.json"
+catalog_bak = codex_dir / "model_catalog.json.bak"
+cache_path = codex_dir / "models_cache.json"
+cache_bak = codex_dir / "models_cache.json.bak_openai"
 
 # 1. Ensure model_catalog.json exists
 if os.path.exists(catalog_bak):
@@ -19,15 +22,16 @@ if os.path.exists(cache_bak):
     print("Cleaned models_cache.json to official OpenAI")
 
 # 3. Update CC-Switch sqlite database
-db_path = r"C:\Users\Zack.ct.chen\.cc-switch\cc-switch.db"
-conn = sqlite3.connect(db_path)
+cc_switch_dir = Path.home() / ".cc-switch"
+db_path = cc_switch_dir / "cc-switch.db"
+conn = sqlite3.connect(str(db_path))
 cursor = conn.cursor()
 
 cursor.execute("SELECT settings_config FROM providers WHERE id='gemini-oauth'")
 row = cursor.fetchone()
 if row:
     data = json.loads(row[0])
-    escaped_catalog = catalog_path.replace("\\", "\\\\")
+    escaped_catalog = str(catalog_path)
     catalog_line = f'model_catalog_json = "{escaped_catalog}"\n'
     
     # Strip any existing model_catalog_json lines
