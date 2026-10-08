@@ -218,7 +218,7 @@ for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(model
 
 data["models"] = new_models
 
-catalog_path = r"C:/Users/Zack.ct.chen/.codex/model_catalog.json"
+catalog_path = os.path.expanduser("~/.codex/model_catalog.json")
 with open(catalog_path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -606,7 +606,7 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
   ```toml
   [mcp_servers.session-sanitizer]
   type = "stdio"
-  command = 'C:\Users\Zack.ct.chen\.codex\tools\Office-PowerPoint-MCP-Server\.venv\Scripts\python.exe'
+  command = 'C:\Users\<使用者名稱>\.codex\tools\Office-PowerPoint-MCP-Server\.venv\Scripts\python.exe'
   args = ['D:\Tools\CLIProxyAPI\session_sanitizer_mcp.py']
   ```
 * **功能**：

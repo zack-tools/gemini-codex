@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-cd /d D:\Git\gemini-codex
+cd /d "%~dp0"
 echo ==============================================
 echo 正在推送 gemini-codex 至 GitHub (zack-tools/gemini-codex)...
 echo ==============================================
