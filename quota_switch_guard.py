@@ -100,6 +100,10 @@ def read_current_codex_config() -> Dict[str, Any]:
                 result["provider"] = "gemini"
             elif model.startswith("claude"):
                 result["provider"] = "claude"
+            elif model.startswith("gpt") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4") or "codex" in model.lower():
+                result["provider"] = "openai"
+            elif not result.get("model_catalog_json"):
+                result["provider"] = "openai"
             else:
                 result["provider"] = "gemini"
         elif raw_provider in ("openai", "openai_http", "default", None):
@@ -358,8 +362,16 @@ def switch_provider(target: str, model_override: Optional[str] = None) -> bool:
 
     sync_cc_switch(target)
 
-    if target == "openai":
-        sanitize_history_if_available()
+    if target in ("gemini", "claude"):
+        try:
+            build_script = REPO_DIR / "build_catalog.py"
+            if build_script.exists():
+                subprocess.run([sys.executable, str(build_script)], check=True)
+                print("[+] 已自動同步並修復模型目錄 (model_catalog & cc-switch-model-catalog)！")
+        except Exception as e:
+            print(f"[-] 同步模型目錄失敗: {e}")
+
+    sanitize_history_if_available()
 
     return True
 
@@ -394,31 +406,54 @@ def sync_cc_switch(target: str):
         except Exception as e:
             print(f"   [!] CC-Switch settings.json 更新略過: {e}")
 
+    # 3. Update live-state.json (Crucial for CC Switch 路由 mode)
+    live_state_path = CC_SWITCH_DIR / "live-state.json"
+    if live_state_path.exists():
+        try:
+            with open(live_state_path, "r", encoding="utf-8") as f:
+                live_state = json.load(f)
+            codex_app = live_state.get("apps", {}).get("codex", {})
+            if codex_app:
+                route_id = "codex-official" if target == "openai" else "gemini-oauth"
+                codex_app["proxy_route"] = route_id
+                with open(live_state_path, "w", encoding="utf-8") as f:
+                    json.dump(live_state, f, indent=2, ensure_ascii=False)
+                print(f"   [CC-Switch] live-state.json proxy_route 已同步為 {route_id}。")
+        except Exception as e:
+            print(f"   [!] CC-Switch live-state.json 更新略過: {e}")
+
 
 def sanitize_history_if_available():
-    """Run sanitize_history.py to remove Google Vertex carrier blocks."""
+    """Run sanitize_history.py to remove cross-provider carrier and compaction blocks."""
     san_script = REPO_DIR / "sanitize_history.py"
     if san_script.exists():
-        print("[*] 正在執行對話歷史清理，防止切換至 OpenAI 後引發 invalid_encrypted_content 報錯...")
+        print("[*] 正在執行對話歷史清理，防止跨 Provider 切換引發上下文壓縮或加密欄位報錯...")
         try:
             subprocess.run([sys.executable, str(san_script)], check=True)
         except Exception as e:
             print(f"   [!] 清理腳本執行警示: {e}")
 
 
-def restart_codex():
-    """Trigger a clean, detached restart of Codex Desktop."""
-    print("[*] 正在觸發 Codex Desktop 重開...")
+def restart_codex(delay_sec: int = 1):
+    """Trigger a clean, detached restart of Codex Desktop / ChatGPT.app."""
+    print("[*] 正在觸發 Codex / ChatGPT Desktop 重開...")
     if sys.platform == "darwin":
-        cmd = 'sleep 1 && osascript -e \'quit app "ChatGPT"\' && sleep 2 && open -a "ChatGPT"'
+        cmd_parts = [
+            f"sleep {delay_sec}",
+            "osascript -e 'tell application \"ChatGPT\" to quit' 2>/dev/null || true",
+            "sleep 2",
+            "if pgrep -f '/Applications/ChatGPT.app/Contents/MacOS/ChatGPT' >/dev/null; then pkill -f '/Applications/ChatGPT.app/Contents/MacOS/ChatGPT' 2>/dev/null || true; fi",
+            "sleep 1",
+            "open -a '/Applications/ChatGPT.app'"
+        ]
+        cmd = " && ".join(cmd_parts)
         subprocess.Popen(["sh", "-c", cmd], start_new_session=True)
-        print("[+] 重啟命令已派發（將在 1 秒後關閉 ChatGPT 並於 2 秒後重開）。")
+        print(f"[+] 重啟命令已派發（將在 {delay_sec} 秒後關閉 ChatGPT 並重開）。")
     elif sys.platform == "win32":
         ps_cmd = (
-            'Start-Sleep -Seconds 1; '
+            f"Start-Sleep -Seconds {delay_sec}; "
             'Stop-Process -Name "ChatGPT" -Force -ErrorAction SilentlyContinue; '
-            'Start-Sleep -Seconds 2; '
-            'Start-Process "$env:LOCALAPPDATA\\Programs\\ChatGPT\\ChatGPT.exe"'
+            r'Start-Process "$env:LOCALAPPDATA\Programs\ChatGPT\ChatGPT.exe"'
         )
         subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         print("[+] Windows 重啟命令已派發。")

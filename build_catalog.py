@@ -61,13 +61,18 @@ for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(model
     m["default_reasoning_level"] = def_level
     m["supported_reasoning_levels"] = r_levels
     
-    if "base_instructions" in m and m["base_instructions"]:
-        m["base_instructions"] = m["base_instructions"].replace("an agent based on GPT-6", f"an agent powered by {brand}")
-        m["base_instructions"] = m["base_instructions"].replace("GPT-6", brand)
+    for text_field in ["base_instructions"]:
+        if text_field in m and m[text_field]:
+            m[text_field] = m[text_field].replace("an agent based on GPT-6", f"an agent powered by {brand}")
+            m[text_field] = m[text_field].replace("a coding agent based on GPT-5", f"an agent powered by {brand}")
+            m[text_field] = m[text_field].replace("GPT-6", brand).replace("GPT-5", brand)
     if "model_messages" in m and isinstance(m["model_messages"], dict):
         if "instructions_template" in m["model_messages"] and m["model_messages"]["instructions_template"]:
-            m["model_messages"]["instructions_template"] = m["model_messages"]["instructions_template"].replace("an agent based on GPT-6", f"an agent powered by {brand}")
-            m["model_messages"]["instructions_template"] = m["model_messages"]["instructions_template"].replace("GPT-6", brand)
+            it = m["model_messages"]["instructions_template"]
+            it = it.replace("an agent based on GPT-6", f"an agent powered by {brand}")
+            it = it.replace("a coding agent based on GPT-5", f"an agent powered by {brand}")
+            it = it.replace("GPT-6", brand).replace("GPT-5", brand)
+            m["model_messages"]["instructions_template"] = it
             
     new_models.append(m)
 
@@ -80,4 +85,34 @@ with open(catalog_path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
 print(f"SUCCESS: {catalog_path} updated with clean models and functional sliders!")
+
+# Also sync cc-switch-model-catalog.json if present
+cc_cat_path = codex_home / "cc-switch-model-catalog.json"
+if cc_cat_path.exists():
+    try:
+        with open(cc_cat_path, "r", encoding="utf-8") as f:
+            cc_data = json.load(f)
+        official_map = {mod["slug"]: mod for mod in new_models}
+        cc_updated = 0
+        for cc_m in cc_data.get("models", []):
+            cc_slug = cc_m.get("slug", "")
+            if cc_slug.startswith("ccs-gemini/"):
+                base_slug = cc_slug.split("/", 1)[1]
+                target_m = official_map.get(base_slug)
+                if not target_m:
+                    if "gemini-3.1-pro" in base_slug: target_m = official_map.get("gemini-3.1-pro-high")
+                    elif "claude-sonnet" in base_slug: target_m = official_map.get("claude-sonnet-4-6")
+                    elif "claude-opus" in base_slug: target_m = official_map.get("claude-opus-4-6-thinking")
+                    elif "gpt-oss" in base_slug: target_m = official_map.get("gpt-oss-120b-medium")
+                if target_m and "model_messages" in target_m:
+                    cc_m["model_messages"] = copy.deepcopy(target_m["model_messages"])
+                    if "base_instructions" in target_m:
+                        cc_m["base_instructions"] = target_m["base_instructions"]
+                    cc_updated += 1
+        with open(cc_cat_path, "w", encoding="utf-8") as f:
+            json.dump(cc_data, f, ensure_ascii=False, indent=2)
+        print(f"SUCCESS: Also synced {cc_updated} ccs-gemini models in {cc_cat_path}!")
+    except Exception as e:
+        print(f"Warning syncing cc-switch catalog: {e}")
+
 
