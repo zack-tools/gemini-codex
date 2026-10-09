@@ -1,7 +1,6 @@
 import subprocess
 import json
 import copy
-
 import os
 import shutil
 from pathlib import Path
@@ -23,7 +22,8 @@ if not codex_bin:
 
 output = subprocess.check_output([codex_bin, "debug", "models", "--bundled"])
 data = json.loads(output)
-template = data["models"][0]
+bundled_models = list(data.get("models", []))
+template = bundled_models[0]
 
 standard_reasoning_levels = [
     {
@@ -50,14 +50,14 @@ models_info = [
     ("gpt-oss-120b-medium", "OSS 120B", "GPT-OSS 120B via Google OAuth", "GPT-OSS 120B", None, []),
 ]
 
-new_models = []
+custom_models = []
 for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(models_info):
     m = copy.deepcopy(template)
     m["slug"] = slug
     m["display_name"] = display_name
     m["description"] = desc
     m["visibility"] = "list"
-    m["priority"] = i
+    m["priority"] = 100 + i
     m["default_reasoning_level"] = def_level
     m["supported_reasoning_levels"] = r_levels
     
@@ -74,9 +74,10 @@ for i, (slug, display_name, desc, brand, def_level, r_levels) in enumerate(model
             it = it.replace("GPT-6", brand).replace("GPT-5", brand)
             m["model_messages"]["instructions_template"] = it
             
-    new_models.append(m)
+    custom_models.append(m)
 
-data["models"] = new_models
+# 聚合模式關鍵修復：同時保留官方模型與自訂模型，避免聚合時模型錯配 400
+data["models"] = bundled_models + custom_models
 
 codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 codex_home.mkdir(parents=True, exist_ok=True)
@@ -84,7 +85,7 @@ catalog_path = codex_home / "model_catalog.json"
 with open(catalog_path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
-print(f"SUCCESS: {catalog_path} updated with clean models and functional sliders!")
+print(f"SUCCESS: {catalog_path} updated with combined official + custom models!")
 
 # Also sync cc-switch-model-catalog.json if present
 cc_cat_path = codex_home / "cc-switch-model-catalog.json"
@@ -92,7 +93,7 @@ if cc_cat_path.exists():
     try:
         with open(cc_cat_path, "r", encoding="utf-8") as f:
             cc_data = json.load(f)
-        official_map = {mod["slug"]: mod for mod in new_models}
+        official_map = {mod["slug"]: mod for mod in custom_models}
         cc_updated = 0
         for cc_m in cc_data.get("models", []):
             cc_slug = cc_m.get("slug", "")
@@ -114,5 +115,4 @@ if cc_cat_path.exists():
         print(f"SUCCESS: Also synced {cc_updated} ccs-gemini models in {cc_cat_path}!")
     except Exception as e:
         print(f"Warning syncing cc-switch catalog: {e}")
-
 
