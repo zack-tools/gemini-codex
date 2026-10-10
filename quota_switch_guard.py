@@ -80,6 +80,8 @@ def read_current_codex_config() -> Dict[str, Any]:
 
         for line in lines:
             line_str = line.strip()
+            if line_str.startswith("["):
+                break  # Provider/model are root keys, not fields from nested tables.
             if line_str.startswith("#"):
                 continue
             if "=" in line_str:
@@ -127,43 +129,51 @@ def fetch_all_quotas() -> Dict[str, Any]:
         "claude": None,
         "openai": None,
     }
+    current = read_current_codex_config()
+
+    def model_quota(rows, provider, fallback):
+        model = current.get("model", "") if current.get("provider") == provider else fallback
+        model = model.rsplit("/", 1)[-1]
+        row = next((r for r in rows if r.get("modelId") == model), None)
+        if row is None:
+            return None
+        return {"percent": row.get("percent"), "resetTimeLocal": row.get("resetTimeLocal"),
+                "modelId": row.get("modelId")}
 
     # 1. Antigravity quotas
     try:
         anti = check_quota.collect_antigravity_quota()
-        if anti and anti.get("gemini"):
-            quotas["gemini"] = {
-                "percent": anti["gemini"].get("percent", 0.0),
-                "resetTimeLocal": anti["gemini"].get("resetTimeLocal"),
-                "modelId": anti["gemini"].get("modelId"),
-            }
-        if anti and anti.get("claudeModels"):
-            c_first = anti["claudeModels"][0]
-            quotas["claude"] = {
-                "percent": c_first.get("percent", 100.0),
-                "resetTimeLocal": c_first.get("resetTimeLocal") or anti.get("claudeResetTime"),
-                "modelId": c_first.get("modelId"),
-            }
+        if anti:
+            quotas["gemini"] = model_quota(anti.get("geminiModels") or [], "gemini", DEFAULT_GEMINI_MODEL)
+            quotas["claude"] = model_quota(anti.get("claudeModels") or [], "claude", DEFAULT_CLAUDE_MODEL)
+            if anti.get("error"):
+                quotas["gemini_error"] = anti["error"]
     except Exception as e:
         quotas["gemini_error"] = str(e)
 
     # 2. OpenAI quotas
     try:
         oai = check_quota.collect_openai_quota()
-        if oai and oai.get("rateLimits"):
-            rl = oai["rateLimits"][0]
+        rl = next((limit for limit in (oai or {}).get("rateLimits", []) if limit.get("name") == "codex"), None)
+        if oai and oai.get("error"):
+            quotas["openai_error"] = oai["error"]
+        if rl is not None:
             primary = rl.get("primary", {})
             secondary = rl.get("secondary", {})
-            p_rem = primary.get("remainingPercent", 100.0)
-            s_rem = secondary.get("remainingPercent", 100.0)
-            effective_percent = min(p_rem, s_rem)
-            reset_time = primary.get("resetTimeLocal") if p_rem <= s_rem else secondary.get("resetTimeLocal")
+            primary = primary or {}
+            secondary = secondary or {}
+            p_rem = primary.get("remainingPercent")
+            s_rem = secondary.get("remainingPercent")
+            known = [window for window in (primary, secondary) if isinstance(window.get("remainingPercent"), (int, float))]
+            limiting = min(known, key=lambda w: w["remainingPercent"]) if known else {}
+            effective_percent = limiting.get("remainingPercent")
+            reset_time = limiting.get("resetTimeLocal")
             quotas["openai"] = {
                 "percent": effective_percent,
                 "primaryPercent": p_rem,
                 "secondaryPercent": s_rem,
                 "resetTimeLocal": reset_time,
-                "planType": oai.get("planType", "plus"),
+                "planType": oai.get("planType"),
             }
     except Exception as e:
         quotas["openai_error"] = str(e)
@@ -182,13 +192,19 @@ def evaluate_status(
     current_model = config_info.get("model", "unknown")
 
     gemini_q = quotas.get("gemini") or {}
-    gemini_pct = gemini_q.get("percent", 0.0)
+    gemini_pct = gemini_q.get("percent")
 
     openai_q = quotas.get("openai") or {}
-    openai_pct = openai_q.get("percent", 0.0)
+    openai_pct = openai_q.get("percent")
 
     claude_q = quotas.get("claude") or {}
-    claude_pct = claude_q.get("percent", 100.0)
+    claude_pct = claude_q.get("percent")
+
+    def above(value, threshold):
+        return isinstance(value, (int, float)) and value > threshold
+
+    def below(value, threshold):
+        return isinstance(value, (int, float)) and value <= threshold
 
     if current_provider == "gemini":
         current_pct = gemini_pct
@@ -200,8 +216,8 @@ def evaluate_status(
         current_pct = openai_pct
         current_reset = openai_q.get("resetTimeLocal")
 
-    dual_depleted = (openai_pct <= warn_threshold) and (gemini_pct <= warn_threshold)
-    dual_critical = (openai_pct <= switch_threshold) and (gemini_pct <= switch_threshold)
+    dual_depleted = below(openai_pct, warn_threshold) and below(gemini_pct, warn_threshold)
+    dual_critical = below(openai_pct, switch_threshold) and below(gemini_pct, switch_threshold)
 
     # Next target provider according to user priority:
     # Target default is OpenAI. When OpenAI is depleted, fallback to Gemini.
@@ -210,7 +226,7 @@ def evaluate_status(
         target_model = DEFAULT_GEMINI_MODEL
         target_pct = gemini_pct
     elif current_provider == "gemini":
-        if openai_pct > warn_threshold:
+        if above(openai_pct, warn_threshold):
             target_provider = "openai"
             target_model = DEFAULT_OPENAI_MODEL
             target_pct = openai_pct
@@ -219,11 +235,11 @@ def evaluate_status(
             target_model = DEFAULT_CLAUDE_MODEL
             target_pct = claude_pct
     else:  # claude
-        if openai_pct > warn_threshold:
+        if above(openai_pct, warn_threshold):
             target_provider = "openai"
             target_model = DEFAULT_OPENAI_MODEL
             target_pct = openai_pct
-        elif gemini_pct > warn_threshold:
+        elif above(gemini_pct, warn_threshold):
             target_provider = "gemini"
             target_model = DEFAULT_GEMINI_MODEL
             target_pct = gemini_pct
@@ -232,11 +248,14 @@ def evaluate_status(
             target_model = DEFAULT_CLAUDE_MODEL
             target_pct = claude_pct
 
-    if current_pct <= switch_threshold:
+    if not isinstance(current_pct, (int, float)):
+        level = "UNKNOWN"
+        message = "目前模型額度未知；不能判定耗盡，也不能據此自動切換。"
+    elif current_pct <= switch_threshold:
         level = "CRITICAL_SWITCH"
         message = (
             f"當前模型 [{current_provider}:{current_model}] 額度僅剩 {current_pct:.1f}% "
-            f"（<= {switch_threshold:.1f}% 臨界門檻），應立即切換至備援模型 [{target_provider}]！"
+            f"（<= {switch_threshold:.1f}% 臨界門檻），請先確認備援模型 [{target_provider}] 可用。"
         )
     elif current_pct <= warn_threshold:
         level = "WARNING"
@@ -249,7 +268,7 @@ def evaluate_status(
         message = f"額度充足（剩餘 {current_pct:.1f}%），狀態正常。"
 
     if dual_critical:
-        dual_message = f"【雙重耗盡警報】OpenAI ({openai_pct:.1f}%) 與 Gemini ({gemini_pct:.1f}%) 皆已見底！建議啟用 Claude ({claude_pct:.1f}%)。"
+        dual_message = f"【雙重耗盡警報】OpenAI ({openai_pct:.1f}%) 與 Gemini ({gemini_pct:.1f}%) 皆已見底；請核實 Claude 額度與模型可用性。"
     elif dual_depleted:
         dual_message = f"【雙重緊繃預警】OpenAI ({openai_pct:.1f}%) 與 Gemini ({gemini_pct:.1f}%) 均低於預警線！"
     else:
@@ -271,6 +290,7 @@ def evaluate_status(
             "provider": target_provider,
             "model": target_model,
             "percent": target_pct,
+            "quota_available": above(target_pct, switch_threshold),
         },
         "all_quotas": {
             "openai": openai_q,
@@ -314,6 +334,7 @@ def switch_provider(target: str, model_override: Optional[str] = None) -> bool:
     has_catalog_line = False
     has_provider_line = False
     has_model_line = False
+    in_table = False
 
     target_model = model_override
     if not target_model:
@@ -326,19 +347,21 @@ def switch_provider(target: str, model_override: Optional[str] = None) -> bool:
 
     for line in lines:
         line_strip = line.strip()
-        if line_strip.startswith("model_catalog_json"):
+        if line_strip.startswith("["):
+            in_table = True
+        if not in_table and line_strip.startswith("model_catalog_json"):
             if target == "openai":
                 new_lines.append(f"# {line_strip}")
             else:
                 new_lines.append(f'model_catalog_json = "{catalog_path}"')
             has_catalog_line = True
-        elif line_strip.startswith("model_provider"):
+        elif not in_table and line_strip.startswith("model_provider"):
             if target == "openai":
                 new_lines.append('model_provider = "openai_http"')
             else:
                 new_lines.append('model_provider = "custom"')
             has_provider_line = True
-        elif line_strip.startswith("model =") or line_strip.startswith("model="):
+        elif not in_table and (line_strip.startswith("model =") or line_strip.startswith("model=")):
             new_lines.append(f'model = "{target_model}"')
             has_model_line = True
         else:
@@ -429,7 +452,8 @@ def sanitize_history_if_available():
     if san_script.exists():
         print("[*] 正在執行對話歷史清理，防止跨 Provider 切換引發上下文壓縮或加密欄位報錯...")
         try:
-            subprocess.run([sys.executable, str(san_script)], check=True)
+            subprocess.run([sys.executable, str(san_script)], check=True,
+                           env={**os.environ, "CODEX_HOME": str(CODEX_DIR)})
         except Exception as e:
             print(f"   [!] 清理腳本執行警示: {e}")
 
@@ -491,7 +515,7 @@ def main():
     )
 
     if args.auto_guard:
-        if evaluation["level"] == "CRITICAL_SWITCH":
+        if evaluation["level"] == "CRITICAL_SWITCH" and evaluation["target"]["quota_available"]:
             target = evaluation["target"]["provider"]
             print(f"[!] 偵測到臨界額度！正在自動執行切換至 {target.upper()}...")
             switch_provider(target)
@@ -507,16 +531,19 @@ def main():
     tgt = evaluation["target"]
     all_q = evaluation["all_quotas"]
 
+    def percent_text(value):
+        return f"{value:.1f}%" if isinstance(value, (int, float)) else "未知"
+
     print("=" * 60)
     print("           Codex Model Quota Guard & Switcher")
     print("=" * 60)
     print(f"目前運行提供者 : {curr['provider'].upper()} (模型: {curr['model']})")
-    print(f"目前剩餘額度   : {curr['percent']:.1f}%")
+    print(f"目前剩餘額度   : {percent_text(curr['percent'])}")
     print(f"下次重置時間   : {curr['resetTimeLocal'] or '未知'}")
     print("-" * 60)
-    print(f"OpenAI 官方額度: {all_q['openai'].get('percent', 0.0):.1f}% (重置: {all_q['openai'].get('resetTimeLocal', '無')})")
-    print(f"Gemini-OAuth   : {all_q['gemini'].get('percent', 0.0):.1f}% (重置: {all_q['gemini'].get('resetTimeLocal', '無')})")
-    print(f"Claude (Proxy) : {all_q['claude'].get('percent', 100.0):.1f}% (重置: {all_q['claude'].get('resetTimeLocal', '無')})")
+    print(f"OpenAI 官方額度: {percent_text(all_q['openai'].get('percent'))} (重置: {all_q['openai'].get('resetTimeLocal', '無')})")
+    print(f"Gemini-OAuth   : {percent_text(all_q['gemini'].get('percent'))} (重置: {all_q['gemini'].get('resetTimeLocal', '無')})")
+    print(f"Claude (Proxy) : {percent_text(all_q['claude'].get('percent'))} (重置: {all_q['claude'].get('resetTimeLocal', '無')})")
     print("-" * 60)
     print(f"狀態等級       : [{evaluation['level']}]")
     print(f"狀態訊息       : {evaluation['message']}")
@@ -524,12 +551,14 @@ def main():
         print(f"警報提醒       : {evaluation['dual_message']}")
     print("-" * 60)
     if evaluation["level"] == "CRITICAL_SWITCH":
-        print(f"建議動作       : 執行切換至 {tgt['provider'].upper()} ({tgt['percent']:.1f}% 剩餘)")
+        print(f"建議動作       : 先確認 {tgt['provider'].upper()} 可用 ({percent_text(tgt['percent'])} 剩餘)")
         print(f"指令參考       : python3 quota_switch_guard.py --switch {tgt['provider']} --restart")
     elif evaluation["level"] == "WARNING":
         print(f"建議動作       : 額度即將不足，建議準備備援或暫停超長任務")
-    else:
+    elif evaluation["level"] == "OK":
         print(f"建議動作       : 額度充裕，正常工作")
+    else:
+        print("建議動作       : 額度未知，先檢查查詢來源")
     print("=" * 60)
 
 

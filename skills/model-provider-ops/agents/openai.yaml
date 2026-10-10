@@ -1,0 +1,4 @@
+interface:
+  display_name: "模型供應商維護"
+  short_description: "統一訂閱額度查詢、已授權的模型切換與跨供應商對話錯誤診斷及修復"
+  default_prompt: "使用 $model-provider-ops 檢查目前額度並說明是否需要切換模型。"

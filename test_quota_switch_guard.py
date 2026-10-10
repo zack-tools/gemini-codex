@@ -4,6 +4,8 @@ Unit tests for quota_switch_guard.py
 """
 
 import unittest
+from unittest.mock import Mock, patch
+import quota_switch_guard as guard
 from quota_switch_guard import evaluate_status, read_current_codex_config
 
 
@@ -61,42 +63,69 @@ class TestQuotaSwitchGuard(unittest.TestCase):
 
 
     def test_switch_provider_mock(self):
-        import tempfile, shutil
+        import tempfile
         from pathlib import Path
-        import quota_switch_guard
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_codex = Path(tmpdir) / ".codex"
             mock_codex.mkdir()
-            orig = Path.home() / ".codex" / "config.toml"
-            if orig.exists():
-                shutil.copyfile(orig, mock_codex / "config.toml")
-            else:
-                (mock_codex / "config.toml").write_text('model_provider = "custom"\nmodel = "gemini-3.8-flash-high"\n')
-            
-            quota_switch_guard.CODEX_DIR = mock_codex
-            quota_switch_guard.CC_SWITCH_DIR = Path(tmpdir) / ".cc-switch"
+            fixture = 'model_provider = "custom"\nmodel = "gemini-3.8-flash-high"\n[profiles.other]\nmodel = "preserved-model"\n'
+            (mock_codex / "config.toml").write_text(fixture)
+            with patch.object(guard, "CODEX_DIR", mock_codex), patch.object(guard, "CC_SWITCH_DIR", Path(tmpdir) / ".cc-switch"), patch.object(guard.subprocess, "run") as run:
+                for provider, model in [("openai", "gpt-5.5"), ("gemini", "gemini-3.8-flash-high"), ("claude", "claude-sonnet-4-6")]:
+                    self.assertTrue(guard.switch_provider(provider))
+                    text = (mock_codex / "config.toml").read_text()
+                    self.assertIn(f'model = "{model}"', text)
+                    self.assertIn('model = "preserved-model"', text)
+                    self.assertEqual(guard.read_current_codex_config()["model"], model)
+                sanitize = [call for call in run.call_args_list if str(call.args[0][-1]).endswith("sanitize_history.py")]
+                self.assertEqual(len(sanitize), 3)
+                self.assertTrue(all(call.kwargs["env"]["CODEX_HOME"] == str(mock_codex) for call in sanitize))
 
-            # 1. Test OpenAI switch
-            success = quota_switch_guard.switch_provider("openai")
-            self.assertTrue(success)
-            text1 = (mock_codex / "config.toml").read_text()
-            self.assertIn('model_provider = "openai_http"', text1)
-            self.assertIn('model = "gpt-5.5"', text1)
+    def test_unknown_quota_does_not_trigger_switch(self):
+        for provider in ("openai", "gemini", "claude"):
+            res = evaluate_status({"provider": provider, "model": "unavailable"}, {})
+            self.assertEqual(res["level"], "UNKNOWN")
+            self.assertIsNone(res["current"]["percent"])
+            self.assertFalse(res["dual_critical"])
+            self.assertFalse(res["target"]["quota_available"])
 
-            # 2. Test Gemini switch
-            success = quota_switch_guard.switch_provider("gemini")
-            self.assertTrue(success)
-            text2 = (mock_codex / "config.toml").read_text()
-            self.assertIn('model_provider = "custom"', text2)
-            self.assertIn('model = "gemini-3.8-flash-high"', text2)
+    def test_unavailable_fallback_is_not_eligible(self):
+        res = evaluate_status({"provider": "openai", "model": "gpt-5.5"}, {"openai": {"percent": 0}})
+        self.assertEqual(res["level"], "CRITICAL_SWITCH")
+        self.assertFalse(res["target"]["quota_available"])
 
-            # 3. Test Claude switch
-            success = quota_switch_guard.switch_provider("claude")
-            self.assertTrue(success)
-            text3 = (mock_codex / "config.toml").read_text()
-            self.assertIn('model_provider = "custom"', text3)
-            self.assertIn('model = "claude-sonnet-4-6"', text3)
+    def test_fetch_uses_active_model_and_known_codex_windows(self):
+        source = Mock()
+        source.collect_antigravity_quota.return_value = {
+            "gemini": {"percent": 0},
+            "geminiModels": [{"modelId": "gemini-actual", "percent": 70}],
+            "claudeModels": [{"modelId": guard.DEFAULT_CLAUDE_MODEL, "percent": None}],
+        }
+        source.collect_openai_quota.return_value = {"rateLimits": [
+            {"name": "code_review", "primary": {"remainingPercent": 1}},
+            {"name": "codex", "primary": None, "secondary": {"remainingPercent": 40}},
+        ]}
+        with patch.object(guard, "load_check_quota_module", return_value=source), patch.object(guard, "read_current_codex_config", return_value={"provider": "gemini", "model": "ccs-gemini/gemini-actual"}):
+            quotas = guard.fetch_all_quotas()
+        self.assertEqual(quotas["gemini"]["percent"], 70)
+        self.assertEqual(quotas["openai"]["percent"], 40)
+        self.assertIsNone(quotas["claude"]["percent"])
+
+    def test_fetch_does_not_use_unrelated_or_missing_limits(self):
+        source = Mock()
+        source.collect_antigravity_quota.return_value = {"geminiModels": [{"modelId": "other", "percent": 100}]}
+        source.collect_openai_quota.return_value = {"rateLimits": [{"name": "code_review", "primary": {"remainingPercent": 100}}]}
+        with patch.object(guard, "load_check_quota_module", return_value=source), patch.object(guard, "read_current_codex_config", return_value={"provider": "gemini", "model": "missing"}):
+            quotas = guard.fetch_all_quotas()
+        self.assertIsNone(quotas["gemini"])
+        self.assertIsNone(quotas["openai"])
+
+    def test_auto_guard_with_unknown_quota_never_mutates(self):
+        with patch.object(guard, "read_current_codex_config", return_value={"provider": "openai", "model": "unknown"}), patch.object(guard, "fetch_all_quotas", return_value={}), patch.object(guard, "switch_provider") as switch, patch.object(guard, "restart_codex") as restart, patch("sys.argv", ["guard", "--auto-guard", "--restart", "--json"]), patch("builtins.print"):
+            guard.main()
+        switch.assert_not_called()
+        restart.assert_not_called()
 
     def test_dual_critical_alert(self):
         quotas = dict(self.mock_quotas)

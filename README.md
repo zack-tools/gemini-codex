@@ -395,10 +395,10 @@ JSON 保留既有 `account`、`queryTime`、`gemini`、`claudeResetTime`，新�
 
 ### 技能與驗證
 
-`skills/check-model-quota/` 可複製到 Codex 的 skills 目錄。根目錄與技能內各保留一份 `check_quota.py`，修改時須同步。
+`skills/model-provider-ops/` 是額度、切換與修復的統一技能。將完整工具庫安裝後，把該目錄連結到 Codex skills；scripts 以相對連結引用根目錄唯一實作，不再維護重複副本。
 
 ```powershell
-python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.py"
+python -m unittest discover -s skills/model-provider-ops/scripts -p "test*quota.py"
 ```
 
 測試涵蓋 OAuth 格式、憑證錯誤、視窗換算、服務失敗隔離、內部模型排除、明確零額度、查詢降級與不同重置時間分組；不需要真實憑證。
@@ -613,11 +613,9 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
   - `sanitize_cross_provider_history`: 自動掃描並清理 SQLite 與 Session Rollout JSONL 中的跨廠商加密簽章。
   - `check_history_status`: 快速檢查當前 Session 是否存留跨廠商衝突項目。
 
-### 2. Codex Skill：`cross-provider-sanitizer`
-* **路徑**：`~/.codex/skills/cross-provider-sanitizer/SKILL.md`
-* **機制**：當 Codex 偵測到使用者在對話中切換了模型，或捕捉到 `invalid_encrypted_content` 等信號時，Skill 會指示 Codex 主動呼叫 `session-sanitizer` 工具進行自動修復，實現零摩擦跨模型體驗。
+### 2. 模型供應商維護：`model-provider-ops`
 
----
+技能來源：`skills/model-provider-ops/`，本機 discovery 連結為 `~/.codex/skills/model-provider-ops`。查詢、切換與跨供應商修復依目的讀取各自 reference。`session-sanitizer` 是可選 MCP，沒有配置時使用根目錄修復腳本，不假裝能呼叫工具。修復會改動 session 與 SQLite，須符合使用者授權並保留備份。
 
 ### 3. Codex Skill：`chatgpt-portable-updater`（可攜免安裝版更新維護）
 * **路徑**：`~/.codex/skills/chatgpt-portable-updater/SKILL.md`（本專案收錄於 `skills/chatgpt-portable-updater/`）
@@ -632,24 +630,16 @@ python -m unittest discover -s skills/check-model-quota/scripts -p "test*quota.p
 ---
 
 
-### 4. 模型額度守護與自動切換：`model-quota-guard`（Skill 與 CLI 配套）
-* **Skill 路徑**：`~/.codex/skills/model-quota-guard/SKILL.md`（收錄於本專案 `skills/model-quota-guard/`）
-* **核心工具**：`quota_switch_guard.py`、`test_quota_switch_guard.py`
-* **快速腳本**：
-  - macOS / Linux：`./quota-guard.sh`、`./switch-model.sh <openai|gemini|claude> [--restart]`
-  - Windows：`quota-guard.bat`、`switch-model.bat <openai|gemini|claude> [--restart]`
-* **運作機制與策略階層（Priority Chain）**：
-  1. **首選目標（Primary Default）**：OpenAI 官方（`gpt-5.5` 或訂閱預設）。
-  2. **次選備援（Fallback Default）**：當 OpenAI 額度耗盡時，自動備援切換至 Gemini-OAuth（`gemini-3.8-flash-high`）。
-  3. **雙重耗盡防護（Dual-Depleted Alert）**：若 OpenAI 與 Gemini 兩者額度皆見底（<= 10% 預警、<= 5% 告警），觸發雙重警報並引導切換至 Claude（`claude-sonnet-4-6`）。
-* **兩段式門檻決策**：
-  - **剩餘 > 10%**：額度充裕，靜默作業不打擾。
-  - **剩餘 <= 10% 且 > 5%**：【額度預警】於回覆中主動提示剩餘水位與預計重置時間。
-  - **剩餘 <= 5%**：【臨界切換】攔截高消耗任務，主動向使用者確認切換模型。
-* **安全自癒與重啟**：
-  - 切換至 OpenAI 時，自動執行歷史消毒腳本（`sanitize_history.py`），掃除 Vertex 內部 carrier blocks，杜絕 `invalid_encrypted_content` 跨模型解密報錯。
-  - 自動備份 `~/.codex/config.toml`，並同步更新 `~/.cc-switch` 的資料庫與狀態檔。
-  - 支援跨平台（macOS AppleScript / Windows PowerShell）分離進程優雅重啟 Codex 桌面客戶端。
+### 4. 額度警示與切換工具
+
+`quota_switch_guard.py` 是唯一實作；技能 scripts 以相對連結引用它。根目錄 `test_quota_switch_guard.py` 使用隔離設定與 mock 子程序，避免測試改動真實對話。
+
+- `python3 quota_switch_guard.py --check --json`：按目前模型查詢並解讀額度，缺失值保留未知。
+- 已知剩餘不高於 10% 時警示，不高於 5% 時提出備援建議。查詢失敗不代表耗盡；不能用其他模型或 code review 額度代替目前模型。
+- 已授權切換時：`python3 quota_switch_guard.py --switch <openai|gemini|claude> --model <已核實模型>`；先驗證目標模型、provider 與 proxy。`--restart` 僅在需要且已授權時加入。
+- 切換會備份設定、同步現存 CC Switch 狀態並清理跨供應商載體。設定写入完成仍須驗證實際模型回應。
+- `--auto-guard` 只會在目前額度明確低於門檻且備援額度已知可用時切換；使用它仍需既有明確授權。此腳本不是常駐監控。
+- `switch-model.sh` 是歷史便利入口，預設會重啟；需保留 app 時加 `--no-restart`。技能使用上面的直接 Python 命令，避免不必要重啟。
 
 ---
 

@@ -1,10 +1,3 @@
----
-name: check-model-quota
-description: Query remaining Antigravity quotas for Gemini and Claude, and OpenAI Codex ChatGPT subscription quotas. Use for remaining model allowance, usage limits, or reset times; not API billing balances.
-metadata:
-  short-description: Query Antigravity and Codex subscription quotas
----
-
 # Check Model Quota
 
 Run `scripts/check_quota.py --json` relative to this skill directory using an available Python 3.9+ interpreter. On Windows, set `PYTHONIOENCODING=utf-8`. Use `--provider openai` or `--provider antigravity` when the user requests only one service; default is both.
