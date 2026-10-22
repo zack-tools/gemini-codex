@@ -1,6 +1,6 @@
 ---
 name: gemini-interactive-flow
-description: 適用於使用 Gemini 等自訂模型時，賦予其在 Codex 桌面端輸出「階段進度回報（不中斷自動流程）」與「內嵌互動式卡片（Inline Visualization）」，包含在向使用者提問或多方案決策時主動觸發互動卡片。
+description: 適用於使用 Gemini 等自訂模型時，賦予其在 Codex 桌面端輸出「階段進度回報（不中斷自動流程）」與「內嵌互動式卡片（Inline Visualization）」，包含在向使用者提問或多方案決策時主動觸發互動卡片，並內建一鍵複製決策指令。
 metadata:
   short-description: Gemini 階段進度回報與互動卡片能力
 ---
@@ -37,6 +37,9 @@ metadata:
   - **核心決策標題**：明確指出問題焦點（例如「請確認採集逾時處理機制」）。
   - **可點選選項卡片**：提供單選按鈕或按鍵（Option Cards），點擊後下方即時展示該選項的「運作邏輯、效能影響、潛在風險或模擬畫面」。
   - **推薦標籤（Recommended）**：首選方案標註推薦，讓使用者可直接視覺確認或點擊選擇。
+  - **一鍵複製操作列（Action Bar with One-Click Copy）**：
+    卡片底部必須包含一鍵複製工具列，點選不同選項時動態組合成格式化指令（例如「我選擇方案 A：指數退避重試，請繼續實作」），使用者點擊「複製確認句」即可自動寫入系統剪貼簿（具備 `navigator.clipboard` 與 `execCommand` 雙備援），直接貼上送出，免去手動打字。
+    *參考範本*：`templates/decision_card_template.html`
 
 ### 2. 輸出契約（Strict Fragment Contract）
 - **純 HTML 片段**：只能包含局部標籤（如 `<div id="...">...</div>`、`<style>`、`<script>`），**嚴禁**包含 `<!DOCTYPE html>`、`<html>`、`<head>`、`<body>`。

@@ -1,0 +1,248 @@
+<!-- Gemini Interactive Flow: Decision Card Template with One-Click Copy -->
+<div id="{{WIDGET_ID}}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 620px; margin: 0 auto; color: #e6edf3;">
+  <style>
+    #{{WIDGET_ID}} .card-wrapper {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    }
+    #{{WIDGET_ID}} .tag-header {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #58a6ff;
+      background: rgba(56, 139, 253, 0.12);
+      border: 1px solid rgba(56, 139, 253, 0.3);
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    #{{WIDGET_ID}} .q-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #f0f6fc;
+    }
+    #{{WIDGET_ID}} .q-desc {
+      font-size: 13px;
+      color: #8b949e;
+      margin-bottom: 16px;
+      line-height: 1.45;
+    }
+    #{{WIDGET_ID}} .opt-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    #{{WIDGET_ID}} .opt-item {
+      border: 1px solid #30363d;
+      background: #0d1117;
+      border-radius: 8px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    #{{WIDGET_ID}} .opt-item:hover {
+      border-color: #58a6ff;
+      background: rgba(56, 139, 253, 0.05);
+    }
+    #{{WIDGET_ID}} .opt-item.active {
+      border-color: #58a6ff;
+      background: rgba(56, 139, 253, 0.12);
+      box-shadow: 0 0 0 1px #58a6ff;
+    }
+    #{{WIDGET_ID}} .radio-circle {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid #484f58;
+      margin-top: 2px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    #{{WIDGET_ID}} .opt-item.active .radio-circle {
+      border-color: #58a6ff;
+    }
+    #{{WIDGET_ID}} .radio-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #58a6ff;
+      opacity: 0;
+      transform: scale(0.5);
+      transition: all 0.2s ease;
+    }
+    #{{WIDGET_ID}} .opt-item.active .radio-dot {
+      opacity: 1;
+      transform: scale(1);
+    }
+    #{{WIDGET_ID}} .opt-body {
+      flex: 1;
+    }
+    #{{WIDGET_ID}} .opt-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #f0f6fc;
+    }
+    #{{WIDGET_ID}} .badge-rec {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: rgba(46, 160, 67, 0.15);
+      border: 1px solid rgba(46, 160, 67, 0.3);
+      color: #3fb950;
+      font-weight: 500;
+    }
+    #{{WIDGET_ID}} .opt-summary {
+      font-size: 12px;
+      color: #8b949e;
+      margin-top: 3px;
+    }
+    #{{WIDGET_ID}} .panel-details {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    #{{WIDGET_ID}} .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f0f6fc;
+      margin-bottom: 4px;
+    }
+    #{{WIDGET_ID}} .panel-desc {
+      font-size: 12px;
+      color: #8b949e;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+    #{{WIDGET_ID}} .action-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(56, 139, 253, 0.08);
+      border: 1px dashed rgba(56, 139, 253, 0.35);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    #{{WIDGET_ID}} .action-preview {
+      font-size: 12px;
+      color: #c9d1d9;
+    }
+    #{{WIDGET_ID}} .btn-copy {
+      background: #238636;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    #{{WIDGET_ID}} .btn-copy:hover {
+      background: #2ea043;
+    }
+  </style>
+
+  <div class="card-wrapper">
+    <div class="tag-header">
+      <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#58a6ff;"></span>
+      {{TAG_NAME}}
+    </div>
+    <div class="q-title">{{QUESTION_TITLE}}</div>
+    <div class="q-desc">{{QUESTION_DESC}}</div>
+
+    <div class="opt-list" id="{{WIDGET_ID}}-options">
+      <!-- Options injected here -->
+    </div>
+
+    <div class="panel-details">
+      <div class="panel-title" id="{{WIDGET_ID}}-detail-title">方案分析</div>
+      <div class="panel-desc" id="{{WIDGET_ID}}-detail-desc">請點選上方選項查看具體差異。</div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-container">
+      <div class="action-preview" id="{{WIDGET_ID}}-preview-text">
+        預覽指令：<strong>尚未選擇</strong>
+      </div>
+      <button class="btn-copy" id="{{WIDGET_ID}}-btn-copy" onclick="{{WIDGET_ID}}_copyPrompt()">
+        <span>複製確認句</span>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // Configuration & Options
+      const options = {{OPTIONS_JSON}};
+      let selectedKey = Object.keys(options)[0];
+
+      window['{{WIDGET_ID}}_selectOption'] = function(key) {
+        selectedKey = key;
+        const opt = options[key];
+        if (!opt) return;
+
+        document.getElementById('{{WIDGET_ID}}-detail-title').textContent = opt.title + ' 詳細分析';
+        document.getElementById('{{WIDGET_ID}}-detail-desc').textContent = opt.description;
+        document.getElementById('{{WIDGET_ID}}-preview-text').innerHTML = '預覽指令：<strong>' + opt.promptText + '</strong>';
+
+        const btn = document.getElementById('{{WIDGET_ID}}-btn-copy');
+        btn.textContent = '複製確認句';
+        btn.style.background = '#238636';
+
+        const items = document.querySelectorAll('#{{WIDGET_ID}} .opt-item');
+        items.forEach(el => {
+          if (el.getAttribute('data-key') === key) el.classList.add('active');
+          else el.classList.remove('active');
+        });
+      };
+
+      window['{{WIDGET_ID}}_copyPrompt'] = function() {
+        const opt = options[selectedKey];
+        if (!opt) return;
+
+        const text = opt.promptText;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(showCopied).catch(() => fallback(text));
+        } else {
+          fallback(text);
+        }
+      };
+
+      function fallback(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); showCopied(); } catch(e) {}
+        document.body.removeChild(ta);
+      }
+
+      function showCopied() {
+        const btn = document.getElementById('{{WIDGET_ID}}-btn-copy');
+        btn.textContent = '已複製！直接貼上';
+        btn.style.background = '#1f6feb';
+      }
+    })();
+  </script>
+</div>
