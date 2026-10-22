@@ -630,7 +630,13 @@ python -m unittest discover -s skills/model-provider-ops/scripts -p "test*quota.
 ---
 
 
-### 4. 額度警示與切換工具
+### 4. Codex Skill：gemini-interactive-flow（階段進度即時回報與內嵌互動式卡片）
+* **路徑**：`~/.codex/skills/gemini-interactive-flow/SKILL.md`（本專案收錄於 `skills/gemini-interactive-flow/`）
+* **機制**：
+  - **階段進度即時回報（不卡關）**：引導模型在執行耗時或多步驟任務時，每達檢查點以 1–3 句話回報進度，並持續往下推進不中斷流程。
+  - **內嵌互動式視覺化契約**：規範符合 Codex 桌面端的純 HTML 片段格式、獨立根 ID 與事件綁定，並輸出標準 visualize{"path":"..."} 標記，在對話視窗內直接渲染微前端互動卡片。
+
+### 5. 額度警示與切換工具
 
 `quota_switch_guard.py` 是唯一實作；技能 scripts 以相對連結引用它。根目錄 `test_quota_switch_guard.py` 使用隔離設定與 mock 子程序，避免測試改動真實對話。
 
