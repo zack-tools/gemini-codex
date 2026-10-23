@@ -15,6 +15,7 @@ try:
 except Exception:
     from datetime import timezone, timedelta
     TAIPEI_TZ = timezone(timedelta(hours=8))
+LOCAL_TZ = None
 
 CLIENT_ID = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
@@ -102,7 +103,7 @@ def format_iso_time(iso_str):
         return "N/A"
     try:
         dt_utc = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        return dt_utc.astimezone(TAIPEI_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        return dt_utc.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return iso_str
 
@@ -135,7 +136,7 @@ def collect_antigravity_quota():
     except Exception:
         return {"error": "Antigravity 查詢失敗，請檢查網路或重新登入"}
 
-    now_loc = datetime.now(TAIPEI_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    now_loc = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
     models = data.get("models", {})
 
     gemini_quota = None
@@ -235,7 +236,7 @@ def normalize_window(window):
     reset_local = None
     if isinstance(reset, (int, float)):
         try:
-            reset_local = datetime.fromtimestamp(reset, TAIPEI_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            reset_local = datetime.fromtimestamp(reset, LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, OverflowError, OSError):
             pass
     return {"usedPercent": used, "remainingPercent": remaining,
@@ -313,7 +314,7 @@ def check_quota(as_json=False, provider="all", openai_auth=None):
     result = {}
     statuses = []
     if not as_json:
-        print(f"查詢時間: {datetime.now(TAIPEI_TZ):%Y-%m-%d %H:%M:%S}（台北時間，以下重置時間皆同）")
+        print(f"查詢時間: {datetime.now(LOCAL_TZ):%Y-%m-%d %H:%M:%S}（當地時間，以下重置時間皆同）")
     if provider in ("all", "antigravity"):
         try:
             antigravity = collect_antigravity_quota()

@@ -1,4 +1,5 @@
-﻿import contextlib, io, json, tempfile, unittest
+import contextlib, io, json, tempfile, unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 import check_quota as q
@@ -8,7 +9,7 @@ class Tests(unittest.TestCase):
   self.assertIsNone(q.normalize_window({})['remainingPercent'])
   for used, rem in [(9,91),(92,8),(110,0),(-5,100),(0,100)]:
    self.assertEqual(q.normalize_window({'used_percent':used})['remainingPercent'],rem)
-  self.assertEqual(q.normalize_window({'reset_at':0})['resetTimeLocal'],'1970-01-01 08:00:00')
+  self.assertEqual(q.normalize_window({'reset_at':0})['resetTimeLocal'],datetime.fromtimestamp(0).strftime('%Y-%m-%d %H:%M:%S'))
  def test_auth(self):
   for auth in [{'tokens':{'access_token':'test-secret','account_id':'test-account'}},{'access_token':'test-secret','account_id':'test-account'}]:
    with tempfile.TemporaryDirectory() as d:

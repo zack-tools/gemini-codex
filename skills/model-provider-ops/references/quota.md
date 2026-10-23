@@ -2,7 +2,7 @@
 
 Run `scripts/check_quota.py --json` relative to this skill directory using an available Python 3.9+ interpreter. On Windows, set `PYTHONIOENCODING=utf-8`. Use `--provider openai` or `--provider antigravity` when the user requests only one service; default is both.
 
-Report account, provider/product, quota source, remaining percentages, and reset times in Asia/Taipei:
+Report account, provider/product, quota source, remaining percentages, and reset times in local time (當地時間):
 
 - Google / Gemini and Anthropic / Claude: Antigravity credentials from the first `~/.cli-proxy-api/antigravity-*.json` match. These are not Gemini App/API or Claude direct subscription quotas.
 - OpenAI / Codex: ChatGPT subscription using `CODEX_HOME/auth.json`, or `~/.codex/auth.json` when unset. `--openai-auth PATH` overrides this. API keys and keyring-only credentials are unsupported. On OAuth HTTP 401, report the instruction to run `codex login`.

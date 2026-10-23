@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from unittest.mock import patch, mock_open
 import check_quota as q
 class GeminiRegression(unittest.TestCase):
@@ -8,7 +8,7 @@ class GeminiRegression(unittest.TestCase):
  def test_internal_flash_does_not_override_missing_gemini(self):
   r=self.collect({'tab_flash_lite_preview':{'quotaInfo':{'remainingFraction':1}},'gemini-3.1-pro-high':{'quotaInfo':{'resetTime':'2026-09-30T10:52:21Z'}}})
   self.assertIsNone(r['gemini']['percent'])
-  self.assertEqual(r['gemini']['resetTimeLocal'],'2026-09-30 18:52:21')
+  self.assertEqual(r['gemini']['resetTimeLocal'],q.format_iso_time('2026-09-30T10:52:21Z'))
   self.assertEqual(len(r['geminiModels']),1)
  def test_lowest_and_missing(self):
   models={'gemini-a':{'quotaInfo':{'remainingFraction':.7}},'gemini-b':{'quotaInfo':{'remainingFraction':.2}}}
