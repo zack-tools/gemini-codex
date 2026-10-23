@@ -596,6 +596,45 @@ python -m unittest discover -s skills/model-provider-ops/scripts -p "test*quota.
 
 ---
 
+### Q15: 已修復 `@oai/sky`，但測試 Computer Use 時提示 `Native computer APIs are disabled.`、`apps: []`，是否需要改裝第三方 `Windows-MCP`？
+**解答**：
+- **現象**：已照 Q14 建立 `@oai` 符號連結，但當要求 AI 執行桌面應用程式操作或測試 Computer Use 時，AI 呼叫 `cua_repl` 卻收到 `Native computer APIs are disabled.`，且 `cua.getState()` 傳回 `apps: []`，誤以為 Windows 桌面操作功能仍損壞，進而考慮轉向安裝第三方 `Windows-MCP`（如 CursorTouch/Windows-MCP）。
+- **深層原因（雙工具通道架構隔離）**：
+  1. **`cua_repl`（純瀏覽器隔離沙盒）**：
+     - Codex 官方架構中，`cua_repl`（由 `browser` 服務支援）是專門用於操作 **Web 瀏覽器**（Edge 擴充套件分頁、內建 In-App Browser、MCP Apps）的獨立環境。
+     - 基於 Web 沙箱防護原則，系統在該通道中預設將原生 OS 桌面控制關閉（`Native computer APIs are disabled`），因此其 `apps` 清單恆為空。
+  2. **`node_repl` + `@oai/sky`（真正的 Windows 原生桌面控制引擎）**：
+     - Codex Desktop 官方的 Windows 應用程式控制引擎掛載在 `node_repl` 執行階段中。
+     - 透過 Named Pipe（`\\.\pipe\codex-computer-use-<UUID>`）即時對接 C++ 原生進程（`codex-computer-use.exe`），支援 GPU 加速螢幕截圖（WGC）、低延遲 `SendInput` 與 UI Automation 結構讀取。
+- **正確認證與操作方式**：
+  **原生 Computer Use 完全正常可用，絕非損壞，完全無需安裝第三方 Windows-MCP！**
+  只要在 `node_repl` 中載入 `@oai/sky`，即可無縫操作 Windows 桌面應用：
+  ```javascript
+  // 1. 載入原生控制模組（自動對接本機 Named Pipe）
+  const { sky } = await import("@oai/sky");
+
+  // 2. 列出目前開啟的所有本機桌面視窗
+  const windows = await sky.list_windows();
+  const targetWin = windows.find(w => w.title.includes("檔案總管") || w.title.includes("Notepad++"));
+
+  // 3. 視窗喚醒與狀態讀取（包含 UIA 結構樹、焦點與控制項 ID）
+  await sky.activate_window({ window: targetWin });
+  const state = await sky.get_window_state({ window: targetWin, include_text: true });
+
+  // 4. 原生鍵鼠操作（支援焦點文字輸入、組合鍵、控制項點擊、座標點擊與捲動）
+  await sky.type_text({ window: targetWin, text: "測試輸入" });
+  await sky.press_key({ window: targetWin, key: "Control_L+s" });
+  // await sky.click({ window: targetWin, element_index: 5 }); // 點擊特定控制項
+  // await sky.click({ window: targetWin, x: 100, y: 150 });   // 點擊視窗相對座標
+  ```
+- **核心結論**：
+  - **瀏覽器操作**：走 `cua_repl` / `createBrowserTab` / Playwright。
+  - **本機桌面 App 操作**：走 `node_repl` + `@oai/sky`。
+  兩者各司其職，維持官方原生 `@oai/sky` 方案具有最高穩定性與最佳 Token 效益。
+
+
+---
+
 ## 🤖 自動化自癒配套：MCP Server 與 Skill
 
 為了徹底告別手動執行清理腳本，本架構已整合了全自動的 MCP Server 與 Codex Skill：
