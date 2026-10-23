@@ -31,9 +31,17 @@ metadata:
 - **純 HTML 片段**：只能包含局部標籤（如 `<div id="...">...</div>`、`<style>`、`<script>`），**嚴禁**包含 `<!DOCTYPE html>`、`<html>`、`<head>`、`<body>`。
 - **獨立唯一根 ID**：片段外層必須有一個專屬 ID，所有的 CSS 選擇器與 JavaScript 操作皆以此 ID 為根（例如 `#my-widget .btn`），防止樣式外溢或命名衝突。
 - **內置狀態與事件**：在 `<script>` 中以純 JavaScript 綁定事件（如點選按鈕、滑桿切換、主題更換），並直接修改局部 DOM 屬性實現即時互動反饋。
-- **禁止外部連網**：僅允許內建樣式或經許可的 CDN 靜態資源，禁止在片段中調用外部 API（無 `fetch`、WebSocket）。
 
-### 2. 檔案寫入與觸發語法
+### 2. 純本機零外網安全規範（Air-Gapped / Zero External Network）
+- **嚴禁外網靜態資源**：禁止引用外部 CSS/JS（嚴禁 Google Fonts、CDN scripts）、嚴禁使用 `<link rel="stylesheet" href="http...">`。
+- **字型全本機回退棧**：字型必須採用作業系統原生字型：
+  ```css
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  ```
+- **圖示全內嵌向量（Inline SVG / Pure CSS）**：禁止引用外網圖床或外部圖示字型（如 FontAwesome、Material Icons CDN），所有圖示必須以內嵌 `<svg>` 或純 CSS 形狀實現。
+- **離線自給自足**：卡片在工控現場斷網、隔離內網或阻擋外網連接的沙盒環境中，必須保證 100% 正常渲染與互動，無任何外網請求逾時報錯。
+
+### 3. 檔案寫入與觸發語法
 1. **寫入檔案**：將 HTML 片段儲存於本機可存取路徑（優先選擇任務環境中的視覺化目錄，例如 `~/.codex/visualizations/...` 或任務工作目錄下的 `.html` 檔案）。
 2. **調用標記**：在回覆的文字中，以**單獨一行**輸出專屬觸發語法：
    ```text
