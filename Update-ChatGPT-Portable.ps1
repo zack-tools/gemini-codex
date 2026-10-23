@@ -130,6 +130,14 @@ foreach ($s in $desktopShortcuts) {
     }
 }
 
+# Verify aggregate model routing before reporting a successful update.
+$routeGuard = Join-Path $PSScriptRoot 'ensure_model_routes.py'
+if (-not (Test-Path -LiteralPath $routeGuard)) {
+    throw "Model route guard missing: $routeGuard"
+}
+& python $routeGuard
+if ($LASTEXITCODE -ne 0) { throw "CC Switch model route verification failed." }
+
 # Clean installation verification
 $appx = Get-AppxPackage -Name "*OpenAI.Codex*" -ErrorAction SilentlyContinue
 Write-Host "`n==========================================================" -ForegroundColor Cyan

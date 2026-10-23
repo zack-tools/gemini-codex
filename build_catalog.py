@@ -116,3 +116,7 @@ if cc_cat_path.exists():
     except Exception as e:
         print(f"Warning syncing cc-switch catalog: {e}")
 
+
+# Preserve aggregate routing after rebuilding a legacy catalog.
+from ensure_model_routes import repair
+print(repair(codex_home, Path.home() / ".cc-switch"))
